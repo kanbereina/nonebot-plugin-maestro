@@ -1,0 +1,127 @@
+name: First Release
+
+# 仅用于 PyPI 首次发布这一次性操作。可信发布（trusted publishing）要求
+# 项目在 PyPI 上已存在或已配置 pending publisher 才能验证 OIDC token；
+# 但 pending publisher 首次验证成功后会自动转正——这个 workflow 就是
+# 用来完成那"首次验证"的。发布成功后本文件应删除，后续发版走
+# release.yml（由 main 上 pyproject.toml 的版本号变化触发）。
+#
+# 使用前必须先在 PyPI 手动添加 pending publisher：
+#   https://pypi.org/manage/account/publishing/
+#   PyPI Project Name : nonebot-plugin-maestro
+#   Owner             : kanbereina
+#   Repository name   : nonebot-plugin-maestro
+#   Workflow name     : first-release.yml
+#   Environment name  : release
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '输入 "first-release" 以确认执行首次发布'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  first-release:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: 确认执行
+        run: |
+          if [ "${{ inputs.confirm }}" != "first-release" ]; then
+            echo "::error::confirm 输入不是 'first-release'，已中止。这是一次性操作，防止误触发。"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 提取版本号
+        id: version
+        run: |
+          VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          if [ -z "${VERSION}" ]; then
+            echo "::error::无法从 pyproject.toml 解析版本号"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "将发布版本：${VERSION}"
+
+      # 硬性防护：一旦 PyPI 上已存在这个包名，说明首发已完成，
+      # 此 workflow 不应再被使用——改走 release.yml 的常规流程
+      - name: 检查 PyPI 是否已发布过
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/nonebot-plugin-maestro/json")
+          if [ "${STATUS}" = "200" ]; then
+            echo "::error::PyPI 上已存在 nonebot-plugin-maestro，首次发布已完成。"
+            echo "::error::后续发版请走 release.yml（改 pyproject.toml 版本号并合并到 main），不要再用本 workflow。"
+            exit 1
+          fi
+          echo "确认 PyPI 上尚无此包（HTTP ${STATUS}），可以执行首次发布"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+          version: latest
+
+      - name: Install Dependencies
+        run: uv sync --locked
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run pyrefly check
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Build
+        run: uv build
+
+      - name: Check artifacts
+        run: |
+          ls -lh dist/
+          uv run python -c "
+          import zipfile, pathlib, sys
+          whl = sorted(pathlib.Path('dist').glob('*.whl'))[-1]
+          names = zipfile.ZipFile(whl).namelist()
+          need = ['static/index.html', 'static/app.css', 'static/app.js']
+          missing = [n for n in need if not any(n in x for x in names)]
+          if missing:
+              sys.exit(f'wheel 缺少静态资源: {missing}')
+          print(f'{whl.name} 静态资源完整')
+          "
+
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          body: |
+            首次发布到 PyPI: https://pypi.org/project/nonebot-plugin-maestro/${{ steps.version.outputs.version }}/
+          files: dist/*
+          make_latest: true
+
+      - name: 完成提示
+        run: |
+          echo "::notice::首次发布完成。请删除 .github/workflows/first-release.yml，"
+          echo "::notice::后续发版改走 release.yml（改 pyproject.toml 版本号 -> PR -> 合并到 main）。"
