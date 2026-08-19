@@ -1,0 +1,421 @@
+/* 取自 QQ 开放平台的卡片样式约定：ink 墨色分级 + accent 强调色。
+   ink-3/ink-4 用 rgba(60,60,67,*) 是 Apple label color 的惯例，
+   官方 role-member 背景 rgba(60,60,67,.08) 即出自同一套。 */
+/* QQ 官方设计 token（截取本项目用到的部分，命名与官方一致） */
+:root {
+  --bg: #f5f5f7;
+  --bg-elev: #ffffff;
+  --ink: #1d1d1f;
+  --ink-2: #3c3c43;
+  --ink-3: #6e6e73;
+  --ink-4: #8e8e93;
+  --line: rgba(60, 60, 67, .12);
+  --line-strong: rgba(60, 60, 67, .22);
+  --accent: #0099FF;
+  --accent-soft: rgba(0, 153, 255, .08);
+  --accent-softer: rgba(0, 153, 255, .16);
+  --accent-border: rgba(0, 153, 255, .18);
+  --accent-border-strong: rgba(0, 153, 255, .28);
+  --danger: #ff3b30;
+  --ok: #30d158;
+  --online: #34c759;
+  --feedback_error: #F74C30;
+  --feedback_success: #15D173;
+  --fill_standard_primary: rgba(13, 16, 49, 0.04);
+  --overlay_light: rgba(0, 77, 255, 0.06);
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06);
+  --shadow: 0 4px 16px rgba(17,24,39,.06), 0 1px 4px rgba(17,24,39,.04);
+  --shadow-lg: 0 20px 50px rgba(17,24,39,.12), 0 4px 16px rgba(17,24,39,.06);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC",
+               "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+body {
+  color: var(--ink); font-family: var(--font-sans); font-size: 14px;
+  -webkit-font-smoothing: antialiased; letter-spacing: -.003em;
+}
+.font-mono, code, kbd { font-family: var(--font-mono); }
+/* 截断链：flex 子项必须 min-width:0 才能真正 ellipsis，
+   这是官方每个类都带 min-width:0 的原因，缺一层就失效。 */
+.bot-name-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bot-name-row .bot-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; color: var(--ink); font-weight: 600;
+}
+.bot-role-tag {
+  display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;
+  height: 20px; padding: 0 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; line-height: 1;
+}
+.bot-role-tag.role-admin { color: var(--accent); background: var(--accent-soft); }
+.bot-role-tag.role-member { color: var(--ink-3); background: rgba(60, 60, 67, 0.08); }
+.role-icon { flex-shrink: 0; width: 12px; height: 12px; display: inline-flex; }
+.role-icon svg { width: 100%; height: 100%; display: block; }
+.role-text { flex-shrink: 0; }
+.bot-status-text { flex-shrink: 0; }
+.bot-meta {
+  display: flex; align-items: center; gap: 20px; min-width: 0;
+  color: var(--ink-3); font-size: 12px;
+}
+.bot-meta-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bot-stats { gap: 16px; }
+.bot-stats .bot-meta-item { display: inline-flex; align-items: center; gap: 4px; }
+.bot-stats .bot-stat-icon { color: var(--ink-4); }
+.bot-stats b { color: var(--ink-2); font-weight: 600; }
+/* 普通白色区块（无渐变、无 hover）：面板列表等内容容器 */
+.surface {
+  background: var(--bg-elev); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+}
+/* 卡片本体按官方规格：padding 18px、shadow-sm、透明边框（hover 才显色）、
+   overflow hidden 裁掉渐变溢出 */
+.bot-card {
+  background: #fff;
+  background-image: radial-gradient(120% 120% at 100% 0%, rgba(0, 153, 255, .06) 0%, transparent 60%);
+  border-radius: var(--radius); padding: 18px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid transparent;
+  position: relative; overflow: hidden;
+  transition: transform .18s, box-shadow .18s, border-color .18s;
+}
+.bot-card.is-clickable:hover {
+  border-color: var(--accent-border-strong);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+/* 开发者备注：带标题的浅色区块，明确标注这是备注。
+   min-width 保证极短备注（如「测」）也不会挤成窄条；
+   max-width 让长备注仍在容器内换行 */
+.remark {
+  display: inline-block; min-width: 300px; max-width: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--fill_standard_primary);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent-border-strong);
+  padding: 5px 9px;
+}
+.remark-label {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .02em;
+  color: var(--ink-4); margin-bottom: 1px;
+}
+.remark-label-icon { width: 11px; height: 11px; flex-shrink: 0; display: inline-flex; }
+.remark-label-icon svg { width: 100%; height: 100%; display: block; }
+.remark-body {
+  font-size: 12.5px; color: var(--ink-2); line-height: 1.45;
+  overflow-wrap: anywhere; white-space: pre-wrap;
+}
+/* 区块小标题（如「当前配置指令：」） */
+.field-label {
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  color: var(--ink-4); margin-bottom: 6px;
+}
+/* 指令预览 chip */
+.cmd-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; padding: 4px 9px; border-radius: 999px;
+  color: var(--ink-2); background: var(--bg-elev);
+  border: 1px solid var(--line); max-width: 100%;
+}
+.cmd-chip-icon {
+  width: 12px; height: 12px; flex-shrink: 0;
+  color: var(--ink-4); display: inline-flex;
+}
+.cmd-chip-icon svg { width: 100%; height: 100%; display: block; }
+.cmd-chip-admin {
+  font-size: 10px; font-weight: 600; line-height: 1;
+  padding: 2px 4px; border-radius: 4px; flex-shrink: 0;
+  color: #0d8a6a; background: rgba(21, 209, 115, .16);
+}
+/* 编辑面板：上下箭头合成一组，共用外框、中间一条分隔线 */
+.move-group {
+  display: inline-flex; align-items: stretch; flex-shrink: 0;
+  border: 1px solid rgba(60, 60, 67, .25);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.move-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; padding: 3px 0; font-size: 12px; line-height: 1;
+  color: var(--ink-3); background: transparent; border: none; cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.move-btn + .move-btn { border-left: 1px solid rgba(60, 60, 67, .25); }
+.move-btn:hover:not(:disabled) { background: rgba(204, 204, 204, .30); color: var(--ink); }
+.move-btn:disabled { opacity: .3; cursor: not-allowed; }
+/* 删除：淡红底 + 红字（官方 button_text_error 的错误色） */
+.btn-danger {
+  display: inline-flex; align-items: center; flex-shrink: 0;
+  padding: 3px 10px; font-size: 12px; line-height: 1.5;
+  border-radius: var(--radius-sm); cursor: pointer;
+  color: var(--feedback_error);
+  background: rgba(247, 76, 48, .08);
+  border: 1px solid rgba(247, 76, 48, .22);
+  transition: background .15s ease, border-color .15s ease;
+}
+.btn-danger:hover {
+  background: rgba(247, 76, 48, .16);
+  border-color: rgba(247, 76, 48, .38);
+}
+/* 仅管理员：淡蓝色开关式按钮，选中后描边与文字转 accent */
+.admin-toggle {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  padding: 6px 12px; font-size: 13px; border-radius: var(--radius-sm);
+  cursor: pointer; user-select: none;
+  color: var(--ink-3); background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.admin-toggle:hover { background: var(--accent-softer); }
+.admin-toggle.is-on {
+  color: var(--accent); font-weight: 600;
+  background: var(--accent-softer); border-color: var(--accent);
+}
+/* 勾选框保持浏览器默认外观：不设 accent-color，
+   避免勾选后填充成深蓝、与淡蓝底冲突 */
+.admin-toggle input { cursor: pointer; }
+/* 「其余 N 个」按钮：灰色按钮样式，点击打开详情 */
+.chip-more-btn {
+  display: inline-flex; align-items: center;
+  font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  color: var(--ink-3); background: var(--fill_standard_primary);
+  border: 1px solid var(--line); cursor: pointer; flex-shrink: 0;
+  transition: background .15s ease, color .15s ease;
+}
+.chip-more-btn:hover {
+  background: rgba(204, 204, 204, .30); color: var(--ink-2);
+}
+/* 次要按钮（官方 button_bg_secondary + button_border_secondary） */
+.btn-ghost {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; font-size: 13px; border-radius: var(--radius-sm);
+  color: var(--ink-2); background: transparent;
+  border: 1px solid rgba(60, 60, 67, .25); cursor: pointer;
+  transition: background .15s ease;
+}
+.btn-ghost:hover { background: rgba(204, 204, 204, .30); }
+/* 数量提示（官方 .limit-hint 规格） */
+.limit-hint {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--ink-3); font-size: 12.5px; padding: 6px 2px;
+}
+.limit-hint b { color: var(--ink); font-weight: 600; }
+.dot-g {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(52, 199, 89, .15);
+}
+/* 卡片网格：单卡 320–400px，宽屏下多列但不过窄 */
+.bot-grid {
+  display: grid; gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  max-width: 1240px;
+}
+/* 卡片结构（参考官方）：bot-head 基础信息 / 虚线 / bot-foot 标识信息 */
+.bot-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.bot-avatar {
+  width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0;
+  overflow: hidden; display: flex; align-items: center; justify-content: center;
+}
+.bot-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.bot-info { flex: 1; min-width: 0; }
+.bot-action { flex-shrink: 0; width: 16px; height: 16px; color: var(--ink-4); }
+.bot-action svg { width: 100%; height: 100%; display: block; }
+/* 虚线不通到卡片边缘：卡片自带 18px padding，此处仅上移边线 */
+.bot-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; min-width: 0; margin-top: 14px; padding-top: 12px;
+  border-top: 1px dashed var(--line-strong);
+}
+/* 状态行：圆点 + 文字 + 次级说明 */
+.bot-status { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 3px; font-size: 12px; }
+.status-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  background: var(--online);
+}
+.status-dot.is-bad { background: var(--danger); }
+.bot-status-text { flex-shrink: 0; color: var(--ink-2); font-weight: 500; }
+.bot-stat-icon { width: 13px; height: 13px; display: inline-flex; flex-shrink: 0; }
+.bot-stat-icon svg { width: 100%; height: 100%; display: block; }
+/* ---- 侧边栏（参考 QQ 机器人后台）---- */
+body { background: var(--bg); }
+.layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 260px; flex-shrink: 0; background: var(--bg-elev);
+  border-right: 1px solid var(--line);
+  padding: 24px 16px; display: flex; flex-direction: column; gap: 5px;
+}
+.sidebar-brand {
+  display: flex; align-items: center; gap: 12px;
+  padding: 4px 8px 18px; min-width: 0;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+.sidebar-brand-icon {
+  flex-shrink: 0; width: 36px; height: 36px;
+  border-radius: 9px; object-fit: contain;
+}
+.sidebar-brand-text { min-width: 0; }
+/* 「QQ机器人」加粗，下方「指令面板后台」普通字重、次级墨色 */
+.sidebar-brand-title {
+  font-size: 17px; font-weight: 700; color: var(--ink);
+  line-height: 1.25; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.sidebar-brand-sub {
+  font-size: 13px; font-weight: 400; color: var(--ink-3);
+  line-height: 1.35; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 10px 12px; border-radius: 9px; font-size: 14px;
+  color: var(--ink-2); cursor: pointer; border: none;
+  background: none; width: 100%; text-align: left;
+  transition: background .15s ease, color .15s ease;
+}
+.nav-item:hover { background: rgba(60, 60, 67, 0.06); }
+.nav-item.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.nav-item-icon { flex-shrink: 0; width: 18px; text-align: center; }
+/* 图标版导航项：未选中时灰显，选中/悬停恢复原色（PNG 只能靠滤镜） */
+.nav-item-logo {
+  height: 18px; object-fit: contain; border-radius: 4px;
+  filter: grayscale(1); opacity: .45;
+  transition: filter .15s ease, opacity .15s ease;
+}
+.nav-item:hover .nav-item-logo,
+.nav-item.is-active .nav-item-logo { filter: none; opacity: 1; }
+.nav-item-label {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nav-section {
+  font-size: 12px; color: var(--ink-4); font-weight: 600;
+  padding: 16px 12px 7px; letter-spacing: .04em;
+}
+
+/* 侧边栏底部卡片：官方卡片样式（白底、圆角、细边框、浅阴影、hover 加深） */
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.sidebar-footer-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid rgba(60, 60, 67, .08);
+  border-radius: 18px;
+  box-shadow: 0 10px 24px rgba(17, 24, 39, .05);
+  cursor: pointer;
+  transition: background .15s, box-shadow .15s, border-color .15s;
+  text-align: center;
+  overflow: hidden;
+}
+.sidebar-footer-card:hover {
+  box-shadow: 0 12px 28px rgba(17, 24, 39, .08);
+  border-color: rgba(60, 60, 67, .12);
+}
+/* 作为 <a> 使用：去掉默认下划线与链接色 */
+.sidebar-footer-card,
+.sidebar-footer-card:hover { text-decoration: none; }
+/* 悬停时署名转强调色，提示这是可点击的外链 */
+.sidebar-footer-card:hover .sidebar-footer-author { color: var(--accent); }
+.sidebar-footer-icon {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  object-fit: contain;
+}
+.sidebar-footer-text {
+  width: 100%;
+  line-height: 1.4;
+}
+.sidebar-footer-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text_primary);
+  letter-spacing: -0.01em;
+  margin-bottom: 2px;
+}
+.sidebar-footer-version {
+  font-size: 11px;
+  color: var(--text_secondary);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+.sidebar-footer-author {
+  font-size: 10px;
+  color: var(--text_tertiary);
+  letter-spacing: 0.01em;
+  transition: color .15s;
+}
+
+/* 场景切换标签（主页面内）。下边框对齐成一条基线，
+   选中项用 accent 色下划线，与 QQ 后台的分段导航一致 */
+/* 四个标签宽度有限，桌面端无需滚动；用 flex-wrap 兜住极窄屏，
+   避免 overflow-x:auto 在 Windows 上留出滚动条轨道与箭头 */
+.scope-tabs {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+}
+.scope-tab {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  padding: 9px 14px; font-size: 14px; color: var(--ink-3);
+  background: none; border: none; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .15s ease, border-color .15s ease;
+}
+.scope-tab:hover { color: var(--ink); }
+.scope-tab.is-active {
+  color: var(--accent); font-weight: 600; border-bottom-color: var(--accent);
+}
+.scope-tab-count {
+  font-size: 11px; font-weight: 600; line-height: 1;
+  padding: 2px 6px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+}
+/* 场景图标统一灰色（含选中态）——图标只作辨识，不参与状态表达，
+   状态由文字颜色与下划线承载。SVG 内部用 currentColor 继承此色。 */
+.scope-tab-icon {
+  flex-shrink: 0; width: 17px; height: 17px;
+  color: var(--ink-3); display: inline-flex;
+  align-items: center; justify-content: center;
+}
+.scope-tab-icon svg { width: 100%; height: 100%; display: block; }
+/* 官方 .content 只有 min-width:0 + min-height:100vh，
+   内容不额外向右偏移。大屏下加大留白，避免元素贴边 */
+.content { flex: 1; min-width: 0; min-height: 100vh; padding: 28px 32px; }
+@media (min-width: 1280px) { .content { padding: 36px 56px; } }
+@media (min-width: 1600px) { .content { padding: 40px 72px; } }
+@media (max-width: 820px) {
+  .layout { flex-direction: column; }
+  .sidebar {
+    width: auto; border-right: none;
+    border-bottom: 1px solid var(--line);
+    flex-direction: row; align-items: center;
+    overflow-x: auto; padding: 12px;
+  }
+  /* 横向排列时改用竖向虚线分隔，横向的边会变成突兀的下划线 */
+  .sidebar-brand {
+    padding: 0 14px 0 4px; margin-bottom: 0;
+    border-bottom: none;
+    border-right: 1px solid var(--line);
+  }
+  .sidebar-brand-icon { width: 30px; height: 30px; }
+  .sidebar-brand-sub { display: none; }
+  .nav-section { display: none; }
+  .nav-item { width: auto; white-space: nowrap; }
+  .content { padding: 20px 16px; }
+}

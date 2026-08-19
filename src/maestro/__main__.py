@@ -12,16 +12,16 @@
 
 import uvicorn
 
-from maestro.webui import get_bind
+from maestro.config import WebUIConfig
 
 if __name__ == "__main__":
-    # 先 init 一次以加载 .env，使 get_bind 能读到其中的 MAESTRO_* 配置。
-    # app 的 lifespan 之后还会 init（NoneBot 内部幂等，重复调用安全）。
+    # 先 init 一次以加载 .env，使 WebUIConfig 能读到其中的 MAESTRO_* 配置。
+    # app 的 lifespan 之后还会 init（实测 NoneBot 幂等，不覆盖已有 driver）。
     import nonebot
 
     nonebot.init()
 
-    host, port = get_bind()
+    host, port = WebUIConfig.bind()
     uvicorn.run(
         "maestro.webui:app",
         host=host,
