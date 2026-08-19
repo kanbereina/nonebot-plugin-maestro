@@ -1,23 +1,45 @@
 name: Release
 
 on:
+  # 手动触发：选版本类型，自动 bump、打 tag、发布
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "版本递增类型"
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: "仅演练：跑测试与构建，不打 tag、不发布"
+        required: false
+        type: boolean
+        default: false
+
+  # tag 触发：本地 `uv run poe bump` 后 push tag 也会发布
   push:
     tags:
       - "v*"
 
 jobs:
-  publish:
-    name: Publish to PyPI
+  release:
+    name: Build and Publish
     runs-on: ubuntu-latest
     environment: release
     permissions:
-      # PyPI 可信发布（trusted publishing）需要 OIDC token，
-      # 这样无需在仓库里存 API token
+      # id-token 供 PyPI 可信发布换取临时凭证，无需在仓库存 API token
       id-token: write
-      contents: read
+      # bump 需要回写版本号与 tag
+      contents: write
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          # bump-my-version 打 tag 需要完整历史
+          fetch-depth: 0
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
@@ -29,12 +51,73 @@ jobs:
       - name: Install Dependencies
         run: uv sync --locked
 
-      # 发布前再跑一遍，避免带着失败的测试打包
+      # 发布不可撤销（PyPI 同版本号不允许重传），故先跑全套检查
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run pyrefly check
+
       - name: Run tests
         run: uv run pytest -q
+
+      - name: Configure Git
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # 演练时加 --dry-run：否则仍会真实提交并打 tag，与「不发布」的语义矛盾
+      - name: Bump version
+        id: bump
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            uv run bump-my-version bump "${{ inputs.bump }}" --dry-run --verbose
+            NEW_VERSION=$(uv run bump-my-version show current_version)
+            echo "演练：版本将由 ${NEW_VERSION} 递增（未写入）"
+          else
+            uv run bump-my-version bump "${{ inputs.bump }}" --verbose
+            NEW_VERSION=$(uv run bump-my-version show current_version)
+            echo "打包版本: ${NEW_VERSION}"
+          fi
+          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: uv build
 
-      - name: Publish
+      - name: Check artifacts
+        run: |
+          ls -lh dist/
+          # 静态资源必须在 wheel 里，否则 WebUI 页面 404
+          uv run python -c "
+          import zipfile, pathlib, sys
+          whl = sorted(pathlib.Path('dist').glob('*.whl'))[-1]
+          names = zipfile.ZipFile(whl).namelist()
+          need = ['static/index.html', 'static/app.css', 'static/app.js']
+          missing = [n for n in need if not any(n in x for x in names)]
+          if missing:
+              sys.exit(f'wheel 缺少静态资源: {missing}')
+          print(f'{whl.name} 静态资源完整')
+          "
+
+      - name: Push version commit and tag
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run != true
+        run: git push --follow-tags
+
+      - name: Publish to PyPI
+        if: ${{ inputs.dry_run != true }}
         run: uv publish --trusted-publishing always
+
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.bump.outputs.version }}" \
+            --generate-notes \
+            dist/*
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run == true }}
+        run: echo "演练完成：已构建但未发布、未打 tag"
