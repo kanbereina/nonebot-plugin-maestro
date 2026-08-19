@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      # PyPI 可信发布（trusted publishing）需要 OIDC token，
+      # 这样无需在仓库里存 API token
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+          version: latest
+
+      - name: Install Dependencies
+        run: uv sync --locked
+
+      # 发布前再跑一遍，避免带着失败的测试打包
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Build
+        run: uv build
+
+      - name: Publish
+        run: uv publish --trusted-publishing always

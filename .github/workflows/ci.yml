@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "uv.lock"
+      - "pyproject.toml"
+      - ".github/workflows/**"
+
+jobs:
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+          version: latest
+
+      - name: Install Dependencies
+        run: uv sync --locked
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+  typecheck:
+    name: Pyrefly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+          version: latest
+
+      - name: Install Dependencies
+        run: uv sync --locked
+
+      - name: Static typing check
+        run: uv run pyrefly check
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: test-${{ github.ref }}-${{ matrix.python-version }}
+      cancel-in-progress: true
+
+    strategy:
+      fail-fast: false
+      # requires-python = ">=3.12, <3.14"
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    env:
+      PYTHON: ${{ matrix.python-version }}
+      UV_NO_SYNC: 1
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+          version: latest
+
+      - name: Install Dependencies
+        run: uv sync --locked
+
+      - name: Run Pytest
+        run: uv run poe test
+
+  plugin-load:
+    name: Plugin Load Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+          version: latest
+
+      - name: Install Dependencies
+        run: uv sync --locked
+
+      # 发布规范要求插件能零配置加载。QQ_BOTS 留空即可：
+      # WebUI 会正常启动，只是列表为空
+      - name: Load plugin
+        env:
+          MAESTRO_ENABLED: "false"
+        run: |
+          uv run python -c "
+          import nonebot
+          nonebot.init(driver='~httpx+~websockets')
+          from nonebot.adapters.qq import Adapter as QQAdapter
+          nonebot.get_driver().register_adapter(QQAdapter)
+          nonebot.load_plugin('nonebot_plugin_maestro')
+          meta = nonebot.get_plugin('nonebot_plugin_maestro').metadata
+          assert meta is not None, 'PluginMetadata 缺失'
+          assert meta.name and meta.description and meta.usage
+          assert meta.homepage, 'homepage 为发布必填项'
+          print(f'插件加载成功: {meta.name} - {meta.description}')
+          "

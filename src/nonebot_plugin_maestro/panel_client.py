@@ -1,145 +1,24 @@
 """QQ 指令面板 API 客户端。
 
 adapter-qq 未封装 /v2/panels 接口，此模块通过 Bot._request 直接调用。
-
-注意：本模块依赖 `qq` extra（`uv sync --extra qq`）。核心安装下导入会失败，
-调用方应按需惰性导入。
 """
 
+from typing import Any, Literal
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+import nonebot
+from nonebot.drivers import Request
+from nonebot.adapters.qq import Bot
+from nonebot.adapters.qq import Adapter as QQAdapter
+from nonebot.adapters.qq.exception import ActionFailed
 
-from maestro.exceptions import PanelAPIError
-from maestro.validation import (
-    DESC_MAX_WIDTH,
-    MAX_ITEMS,
-    NAME_MAX_WIDTH,
-    REMARK_MAX_LENGTH,
-    check_width,
+from nonebot_plugin_maestro.models import (
+    Panel,
+    BotProfile,
+    PanelRecord,
+    PanelListResponse,
 )
-
-if TYPE_CHECKING:
-    from nonebot.adapters.qq import Bot
-
-# ==================== 数据模型 ====================
-
-
-class PanelItem(BaseModel):
-    """面板元素。
-
-    name/desc 的长度按**显示宽度**校验（中文计 2），与服务端口径一致；
-    详见 maestro.validation 的实测说明。
-    """
-
-    name: str = Field(description="元素名称（显示宽度最多 14，即 7 个汉字）")
-    desc: str = Field(description="元素描述（显示宽度最多 30，即 15 个汉字）")
-    type: Literal["command", "link"] = Field(description="元素类型")
-    only_admin: bool = Field(default=False, description="是否仅管理员可见")
-    link: str | None = Field(
-        default=None, description="type=link 时的跳转 URL（必须 https）"
-    )
-
-    @field_validator("name")
-    @classmethod
-    def _check_name(cls, v: str) -> str:
-        check_width(v, NAME_MAX_WIDTH, "指令名称")
-        return v
-
-    @field_validator("desc")
-    @classmethod
-    def _check_desc(cls, v: str) -> str:
-        check_width(v, DESC_MAX_WIDTH, "指令描述")
-        return v
-
-    @model_validator(mode="after")
-    def _check_link(self) -> "PanelItem":
-        if self.type == "link" and not (self.link or "").startswith("https://"):
-            raise ValueError(
-                f"链接类型的指令「{self.name}」的 link 必须以 https:// 开头"
-            )
-        return self
-
-
-class Panel(BaseModel):
-    """面板配置内容。"""
-
-    items: list[PanelItem] = Field(
-        max_length=MAX_ITEMS,
-        default_factory=list,
-        description=f"面板元素列表（最多 {MAX_ITEMS}）",
-    )
-    remark: str = Field(
-        max_length=REMARK_MAX_LENGTH,
-        default="",
-        description="开发者备注（不展示给用户）",
-    )
-    version: int = Field(default=0, description="版本号")
-
-
-class PanelRecord(BaseModel):
-    """面板完整记录（列表/详情接口返回）。"""
-
-    panel_id: str
-    scope: Literal["c2c", "group", "channel", "dm"]
-    target_type: Literal["all", "specific"]
-    panel: Panel
-    created_at: str = Field(description="创建时间（RFC3339）")
-    updated_at: str = Field(description="更新时间（RFC3339）")
-    version: int
-    user_openids: list[str] = Field(
-        default_factory=list, description="关联用户 openid（c2c+specific）"
-    )
-    group_openids: list[str] = Field(
-        default_factory=list, description="关联群 openid（group+specific）"
-    )
-
-
-class PanelListResponse(BaseModel):
-    """面板列表响应。"""
-
-    records: list[PanelRecord] = Field(default_factory=list)
-    next_cursor: str = ""
-    is_end: bool
-
-
-class CreatePanelRequest(BaseModel):
-    """创建面板请求体。"""
-
-    scope: Literal["c2c", "group", "channel", "dm"]
-    panel: Panel
-    target_type: Literal["all", "specific"] = "all"
-    user_openids: list[str] = Field(default_factory=list)
-    group_openids: list[str] = Field(default_factory=list)
-
-
-class UpdateTargetRequest(BaseModel):
-    """增删面板关联对象请求体。"""
-
-    op: Literal["add", "del"]
-    user_openids: list[str] = Field(default_factory=list)
-    group_openids: list[str] = Field(default_factory=list)
-
-
-class BotProfile(BaseModel):
-    """机器人信息（GET /users/@me）。
-
-    适配器自带的 `User` 模型缺少 share_url / welcome_msg（实测 share_url 有
-    真实值），故单独定义。字段全部可选：welcome_msg 实测返回空串，
-    union_* 需特殊申请。
-    """
-
-    id: str = Field(description="机器人 ID")
-    username: str | None = Field(default=None, description="机器人名称")
-    avatar: str | None = Field(default=None, description="头像 URL")
-    bot: bool | None = Field(default=None, description="是否为机器人")
-    share_url: str | None = Field(default=None, description="分享链接")
-    welcome_msg: str | None = Field(default=None, description="欢迎语")
-    # union_openid / union_user_account 需特殊申请，通常不返回
-    union_openid: str | None = None
-    union_user_account: str | None = None
-
+from nonebot_plugin_maestro.exceptions import PanelAPIError
 
 # ==================== API 客户端 ====================
 
@@ -167,10 +46,6 @@ class PanelAPIClient:
         Raises:
             RuntimeError: QQ_BOTS 未配置或下标越界
         """
-        import nonebot
-        from nonebot.adapters.qq import Adapter as QQAdapter
-        from nonebot.adapters.qq import Bot
-
         adapter = nonebot.get_adapter(QQAdapter)
         bot_infos = adapter.qq_config.qq_bots
         if not bot_infos:
@@ -189,9 +64,6 @@ class PanelAPIClient:
     @classmethod
     def all_from_config(cls) -> list["PanelAPIClient"]:
         """为 QQ_BOTS 中每个 bot 各建一个客户端，供多机器人卡片使用。"""
-        import nonebot
-        from nonebot.adapters.qq import Adapter as QQAdapter
-
         adapter = nonebot.get_adapter(QQAdapter)
         if not adapter.qq_config.qq_bots:
             raise RuntimeError(
@@ -216,9 +88,7 @@ class PanelAPIClient:
         return self._base_url
 
     def _make_request(self, method: str, path: str, **kwargs: Any) -> Any:
-        """构造 nonebot Request（延迟导入以避免核心安装下的 ImportError）。"""
-        from nonebot.drivers import Request
-
+        """构造 nonebot Request。"""
         return Request(method, f"{self._base_url}{path}", **kwargs)
 
     async def _call(self, method: str, path: str, **kwargs: Any) -> Any:
@@ -227,8 +97,6 @@ class PanelAPIClient:
         QQ 侧的业务错误（数量超限、面板不存在、场景不支持等）是调用方输入或
         账号状态问题，不该以 500 + traceback 暴露给前端。
         """
-        from nonebot.adapters.qq.exception import ActionFailed
-
         try:
             return await self.bot._request(self._make_request(method, path, **kwargs))
         except ActionFailed as e:
