@@ -7,5 +7,5 @@ contact_links:
     url: https://nonebot.dev/
     about: NoneBot 本身的使用问题请查阅官方文档
   - name: 💬 讨论区
-    url: https://github.com/kanbereina/Maestro/discussions
+    url: https://github.com/kanbereina/nonebot-plugin-maestro/discussions
     about: 使用疑问与想法交流

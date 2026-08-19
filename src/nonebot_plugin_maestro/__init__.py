@@ -31,7 +31,7 @@ __plugin_meta__ = PluginMetadata(
         "  MAESTRO_ENABLED=true    # 是否启用"
     ),
     type="application",
-    homepage="https://github.com/kanbereina/Maestro",
+    homepage="https://github.com/kanbereina/nonebot-plugin-maestro",
     config=Config,
     # 仅支持 QQ 适配器：指令面板是 QQ OpenAPI 专有接口
     supported_adapters={"~qq"},
