@@ -20,9 +20,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kanbereina/Maestro"
-Issues = "https://github.com/kanbereina/Maestro/issues"
-Repository = "https://github.com/kanbereina/Maestro.git"
+Homepage = "https://github.com/kanbereina/nonebot-plugin-maestro"
+Issues = "https://github.com/kanbereina/nonebot-plugin-maestro/issues"
+Repository = "https://github.com/kanbereina/nonebot-plugin-maestro.git"
 
 [dependency-groups]
 dev = [
