@@ -1,25 +1,47 @@
 [project]
-name = "Maestro"
+name = "nonebot-plugin-maestro"
 version = "0.1.0"
-description = "适用 NoneBot2 的可视化管理 QQ 官方机器人指令面板"
+description = "QQ 官方机器人指令面板可视化管理工具"
 readme = "README.md"
-authors = [
-    { name = "KanbeReina", email = "kano.2525@qq.com" }
-]
 requires-python = ">=3.12, <3.14"
+authors = [{ name = "KanbeReina", email = "kano.2525@qq.com" }]
+license = { text = "MIT" }
+keywords = ["nonebot", "nonebot2", "qq", "panel", "webui"]
 dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.32.0",
+  # WebUI 自带 uvicorn，不复用 NoneBot 的 ASGI 服务端
+  "fastapi>=0.115.0,<1.0.0",
+  "uvicorn[standard]>=0.32.0,<1.0.0",
+  # httpx / websockets extra 提供 ~httpx+~websockets driver 的客户端实现；
+  # 适配器只声明 nonebot2 本体，不会自动带上这两个
+  "nonebot2[httpx,websockets]>=2.5.0,<3.0.0",
+  # 指令面板是 QQ OpenAPI 专有接口，适配器为直接依赖
+  # 下限 1.7.2：其声明 nonebot2>=2.5.0,<3
+  "nonebot-adapter-qq>=1.7.2,<2.0.0",
 ]
 
-[project.optional-dependencies]
-# 走 QQ 适配器取鉴权时安装：uv sync --extra qq
-# nonebot2 下限 2.5.0 由 adapter-qq 1.7.2 强制（其声明 nonebot2>=2.5.0,<3）；
-# httpx / websockets extra 提供 ~httpx+~websockets driver 所需的客户端实现，
-# 适配器只声明 nonebot2 本体，不会自动带上这两个客户端
-qq = [
-    "nonebot-adapter-qq>=1.7.2",
-    "nonebot2[httpx,websockets]>=2.5.0",
+[project.urls]
+Homepage = "https://github.com/kanbereina/Maestro"
+Issues = "https://github.com/kanbereina/Maestro/issues"
+Repository = "https://github.com/kanbereina/Maestro.git"
+
+[dependency-groups]
+dev = [
+  "bump-my-version>=1.2.7",
+  "poethepoet>=0.42.1",
+  "ruff>=0.15.2,<1.0.0",
+  # 沿用本项目既有的类型检查器（模板用 basedpyright，此处不替换）
+  "pyrefly>=1.2.0",
+  { include-group = "test" },
+]
+test = [
+  "nonebug>=0.4.4,<1.0.0",
+  "poethepoet>=0.42.1",
+  "pytest>=9.0.2,<10.0.0",
+  "pytest-asyncio>=1.3.0,<1.4.0",
+  "pytest-cov>=7.0.0",
+  "pytest-xdist>=3.8.0,<4.0.0",
+  # 路由测试用 TestClient，它依赖 httpx
+  "httpx>=0.27.0,<1.0.0",
 ]
 
 [build-system]
@@ -27,23 +49,95 @@ requires = ["uv_build>=0.10.12,<0.11.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "maestro"
+module-name = "nonebot_plugin_maestro"
 
-[dependency-groups]
-dev = [
-    "pyrefly>=1.2.0",
-    "ruff>=0.16.3",
+[tool.bumpversion]
+current_version = "0.1.0"
+commit = true
+message = "release: bump version from {current_version} to {new_version}"
+tag = true
+
+[[tool.bumpversion.files]]
+filename = "uv.lock"
+search = "name = \"nonebot-plugin-maestro\"\nversion = \"{current_version}\""
+replace = "name = \"nonebot-plugin-maestro\"\nversion = \"{new_version}\""
+
+[[tool.bumpversion.files]]
+filename = "src/nonebot_plugin_maestro/__init__.py"
+search = "__version__ = \"{current_version}\""
+replace = "__version__ = \"{new_version}\""
+
+[tool.nonebot]
+plugins = ["nonebot_plugin_maestro"]
+
+[tool.poe.tasks]
+test = "pytest --cov=src --cov-report xml --junitxml=./junit.xml -n auto"
+typecheck = "pyrefly check"
+lint = "ruff check ."
+format = "ruff format ."
+bump = "bump-my-version bump"
+show-bump = "bump-my-version show-bump"
+
+[tool.coverage.report]
+exclude_lines = [
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
+  "@overload",
+  "except ImportError:",
 ]
 
+[tool.pytest.ini_options]
+addopts = [
+  "--strict-markers", # 严格标记模式
+  "--tb=short",       # 简短的错误回溯
+  "-ra",              # 显示所有测试结果摘要
+]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.format]
+line-ending = "lf"
+
 [tool.ruff.lint]
-# UP（pyupgrade）：拦截弃用的 typing 别名（如 typing.Sequence）与旧式 Optional 写法
-extend-select = ["UP"]
+select = [
+  "F",     # Pyflakes
+  "W",     # pycodestyle warnings
+  "E",     # pycodestyle errors
+  "I",     # isort
+  "UP",    # pyupgrade
+  "ASYNC", # flake8-async
+  "C4",    # flake8-comprehensions
+  "T10",   # flake8-debugger
+  "T20",   # flake8-print
+  "PYI",   # flake8-pyi
+  "PT",    # flake8-pytest-style
+  "Q",     # flake8-quotes
+  "TID",   # flake8-tidy-imports
+  "RUF",   # Ruff-specific rules
+]
+ignore = [
+  "E402",   # module-import-not-at-top-of-file
+  "UP037",  # quoted-annotation
+  "RUF001", # ambiguous-unicode-character-string（中文标点）
+  "RUF002", # ambiguous-unicode-character-docstring
+  "RUF003", # ambiguous-unicode-character-comment
+  "W191",   # indentation contains tabs
+  "TID252", # relative-import
+]
+
+[tool.ruff.lint.isort]
+length-sort = true
+known-first-party = ["tests/*"]
+extra-standard-library = ["typing_extensions"]
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
 
 [tool.pyrefly]
-# 检查插件源码、入口与冒烟脚本（脚本对插件私有方法是字符串级依赖，重构后的
-# 失配靠静态检查提前拦截）；tests/ 大量使用假对象与 monkeypatch，实测按同一
-# 套严格度要求会产生数百条 cast 噪音，收益不大，不纳入
-project-includes = ["src", "bot.py", "scripts"]
-# strict 预设 = 默认之上加 implicit-any-parameter / implicit-any-type-argument /
-# implicit-any-empty-container / missing-override-decorator 四条
+# tests/ 不纳入：大量假对象与 monkeypatch，按 strict 会产生数百条 cast 噪音
+project-includes = ["src", "bot.py"]
 preset = "strict"

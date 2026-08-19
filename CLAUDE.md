@@ -10,13 +10,54 @@ Maestro 是适用 NoneBot2 的**可视化指令面板管理工具**：在本地�
 - QQ 适配器：<https://github.com/nonebot/adapter-qq>（PyPI `nonebot-adapter-qq`）
 - 指令面板接口文档：<https://bot.q.qq.com/wiki/develop/api-v2/server-inter/menu-panel/>
 
-## 当前仓库状态
+## 代码结构
 
-**这是一个尚未开始实现的空项目**，动手前务必知道：
+这是一个 **NoneBot 插件**（按发布规范命名）：包名 `nonebot-plugin-maestro`，模块 `nonebot_plugin_maestro`。当前分支 `master`，PR 目标分支 `main`。
 
-- `src/Maestro/__init__.py` 是 0 字节空文件，`README.md` 为空，`[project].dependencies` 为空列表——NoneBot2、适配器、Web 框架都还没装。
-- 无任何 commit（`git log` 为空），当前分支 `master`，PR 目标分支为 `main`。
-- `pyproject.toml` 的 `[tool.pyrefly].project-includes` 已经声明了 `["src", "bot.py", "scripts"]`，注释还提到 `tests/`。**这三个路径目前都不存在**，说明配置预设了目标布局：根级 `bot.py` 作为 NoneBot 入口、`scripts/` 放冒烟脚本、`tests/` 放测试。新增文件请遵循这个既定布局，不要另起一套。
+| 文件 | 职责 |
+|---|---|
+| `src/nonebot_plugin_maestro/__init__.py` | `__plugin_meta__` + `_setup()`（导入时绑定生命周期钩子） |
+| `.../webui.py` | FastAPI 路由 + `WebUIServer`（托管独立 uvicorn） |
+| `.../panel_client.py` | `PanelAPIClient`：面板 API 调用 |
+| `.../models.py` | pydantic 模型（不依赖 nonebot） |
+| `.../config.py` | `Config`（pydantic）+ `get_config()` |
+| `.../registry.py` | `BotRegistry`：已连接 bot 的客户端注册表 |
+| `.../logger.py` | `get_logger()`，统一走 nonebot logger |
+| `.../exceptions.py` | `PanelAPIError`（不依赖 nonebot） |
+| `.../validation.py` | 显示宽度校验 |
+| `.../static/` | 前端：`index.html` / `app.css` / `app.js` / 图标 |
+| `bot.py` | **仅本地开发调试用**，发布后用户不需要 |
+
+**前端资源不要内嵌回 Python**。`webui.py` 曾内嵌 1370 行 HTML/CSS/JS，已拆为 `static/` 下的独立文件，`index` 路由用 `FileResponse` 返回。
+
+⚠️ `static/index.html` 里 **`app.js` 必须排在 Alpine 的 script 标签之前**：两者同为 `defer`，按文档顺序执行，若 Alpine 先跑则 `maestroApp()` 尚未定义、页面白屏。已有测试锁定此顺序。
+
+**倾向类封装而非模块级全局**：状态（如 bot 注册表）用类实例持有，工具函数按职责归入类方法。
+
+### 插件加载与配置
+
+`__init__.py` 在**导入时**调用 `_setup()` 绑定钩子（`on_bot_connect` 注册客户端、`on_startup` 起 uvicorn）。因此宿主须在 `register_adapter()` **之后**再 `load_plugin`。
+
+`_setup()` 在 NoneBot 未 init 时静默返回——这样 `models`/`validation` 等子模块可被独立导入（测试依赖此行为），不强制先 init。
+
+配置走标准插件方式：`Config`（pydantic 模型）+ `nonebot.get_plugin_config`，`.env` 中以 `MAESTRO_` 前缀配置，全部字段有默认值（发布规范要求零配置可加载）。**不要**改回手工解析 `driver.config.model_extra`。
+
+WebUI 跑在自己的 uvicorn 上（默认 `127.0.0.1:8100`，避开 NoneBot 的 8080），不挂载到 NoneBot 的 ASGI app，因此 driver **不需要** `~fastapi`。
+
+### 依赖
+
+`nonebot2[httpx,websockets]` 与 `nonebot-adapter-qq` 都是**必需依赖**，不是 extra——各模块直接 import 它们，缺任一者插件无法加载。`uv sync` 即可。
+
+### 工程化
+
+```bash
+uv run poe test      # pytest + 覆盖率
+uv run poe lint      # ruff check
+uv run poe typecheck # pyrefly（strict）
+uv run pytest -q     # 快速跑测试
+```
+
+测试全部用假客户端，**不打真实 QQ API**——面板写接口会真实修改线上面板且不可逆。CI（`.github/workflows/ci.yml`）跑 ruff、pyrefly、pytest（3.12/3.13）与插件加载测试。
 
 ## 常用命令
 
@@ -32,11 +73,11 @@ uv run ruff format .           # 格式化
 uv run pyrefly check           # 类型检查（strict 预设）
 ```
 
-Python 版本：`requires-python = ">=3.12, <3.15"`，`.python-version` 锁 3.14。写代码按 3.12+ 语法下限，`ruff` 已 `extend-select = ["UP"]`，会拦截 `typing.Sequence`、`Optional[X]` 这类旧写法——直接用 `collections.abc.Sequence`、`X | None`。
+Python 版本：`requires-python = ">=3.12, <3.14"`，当前 venv 是 3.12.10。写代码按 3.12+ 语法下限，`ruff` 已 `extend-select = ["UP"]`，会拦截 `typing.Sequence`、`Optional[X]` 这类旧写法——直接用 `collections.abc.Sequence`、`X | None`。
 
 `pyrefly` 用 `preset = "strict"`：参数与类型实参不允许隐式 `Any`、空容器需标注、覆写需 `@override`。新代码一律写全类型标注。
 
-**测试尚未建立**：`.claude/settings.local.json` 里预授权了 `Bash(pytest -q)`，但 pytest 既不在 `dependency-groups.dev` 也不在 `uv.lock` 中。首次写测试时需 `uv add --dev pytest pytest-asyncio`（异步 I/O 为主，需要 asyncio 插件），然后 `uv run pytest -q`；单测单跑用 `uv run pytest tests/test_x.py::test_y -q`。
+测试已建立（`tests/`，80 个用例）：`uv run pytest -q` 或 `uv run poe test`（带覆盖率）；单测单跑 `uv run pytest tests/test_x.py::test_y -q`。全部用假客户端，**不打真实 QQ API**。
 
 ## 架构要点
 
@@ -109,7 +150,7 @@ NoneBot 侧配置字段（`.env`）：`QQ_IS_SANDBOX`、`QQ_BOTS`（JSON 数组�
 
 实测样本（2026-08-19，生产环境）：`desc="解析哔哩哔哩视频，转换为MP3或FLAC格式音频"` 被拒。该串 `len()=21 < 30`，但宽度 = 16×2 + 3 + 4 + 2×2 = 43 > 30。同批测试中 4 个 item 正常保存，确认与数量无关。
 
-**踩坑点**：浏览器 `maxlength` 按 UTF-16 码元计数，挡不住这种超宽中文串（21 < 30 直接放过），服务端才拒。校验统一走 `maestro.validation.display_width`，前端有对应的 `width()` 实现与实时计数显示。
+**踩坑点**：浏览器 `maxlength` 按 UTF-16 码元计数，挡不住这种超宽中文串（21 < 30 直接放过），服务端才拒。校验统一走 `nonebot_plugin_maestro.validation.display_width`，前端有对应的 `width()` 实现与实时计数显示。
 
 ### 错误码
 
@@ -122,7 +163,7 @@ NoneBot 侧配置字段（`.env`）：`QQ_IS_SANDBOX`、`QQ_BOTS`（JSON 数组�
 
 因此**不要按 code 精确匹配做分支判断**，优先透传服务端 `message`，并记录 `X-Tps-trace-ID`（响应头）。
 
-QQ 侧业务错误由 `panel_client._call` 统一捕获 `ActionFailed` 并转成 `maestro.exceptions.PanelAPIError`，再由 `webui` 的 exception handler 输出 4xx + 原始 message。`exceptions.py` 与 `validation.py` 刻意不依赖 nonebot，以保证核心安装下 `webui` 仍可导入。新增接口调用请走 `_call`，不要直接用 `bot._request`，否则错误会漏成 500 + traceback。
+QQ 侧业务错误由 `panel_client._call` 统一捕获 `ActionFailed` 并转成 `nonebot_plugin_maestro.exceptions.PanelAPIError`，再由 `webui` 的 exception handler 输出 4xx + 原始 message。`exceptions.py` 与 `validation.py` 不依赖 nonebot，使异常处理与 QQ 侧类型解耦。新增接口调用请走 `_call`，不要直接用 `bot._request`，否则错误会漏成 500 + traceback。
 
 `version` 字段是乐观并发的抓手：`PUT` 返回修改后的版本号，WebUI 应携带并比对版本，防止多端编辑互相覆盖。注意 `version` 在请求体中是**可选**的，实测传/不传、传 0 都能成功，服务端未强制校验版本匹配——乐观并发需自行在应用层实现。
 

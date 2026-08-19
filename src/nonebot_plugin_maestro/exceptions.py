@@ -1,8 +1,7 @@
 """Maestro 异常类型。
 
-刻意不依赖 nonebot：webui 需要在核心安装（无 qq extra）下也能导入并注册
-异常处理器，因此适配器的 ActionFailed 在 panel_client 边界处被转换成这里的
-PanelAPIError。
+不依赖 nonebot：适配器的 ActionFailed 在 panel_client 边界处被转换成这里的
+PanelAPIError，使 webui 的异常处理器与 QQ 侧异常类型解耦。
 """
 
 from typing import override

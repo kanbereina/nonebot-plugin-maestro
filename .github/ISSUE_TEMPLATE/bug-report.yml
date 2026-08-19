@@ -1,0 +1,89 @@
+name: 🐛 Bug 反馈
+description: 提交一个 Bug
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。提交前请先确认：
+        - 已升级到最新版本
+        - 已搜索过现有 issue，无重复
+
+        ⚠️ **请勿在 issue 中粘贴 `QQ_BOTS` 的 token / secret**，那是机器人凭证。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清楚描述遇到的问题
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 如何触发这个问题
+      placeholder: |
+        1. 启动 bot
+        2. 打开 WebUI
+        3. 点击「新建面板」
+        4. 出现 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 报错
+      description: |
+        粘贴相关日志。若含 appId、openid 等标识，可自行脱敏。
+      render: shell
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 插件版本
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python 版本
+      placeholder: "3.12.10"
+    validations:
+      required: true
+
+  - type: input
+    id: adapter-version
+    attributes:
+      label: nonebot-adapter-qq 版本
+      placeholder: "1.7.2"
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他信息
+      description: 截图、相关配置（记得脱敏）等

@@ -6,7 +6,7 @@
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from maestro.panel_client import PanelAPIClient
+    from nonebot_plugin_maestro.panel_client import PanelAPIClient
 
 
 class BotRegistry:
@@ -48,7 +48,7 @@ class BotRegistry:
         Returns:
             是否找到匹配的配置项。
         """
-        from maestro.panel_client import PanelAPIClient
+        from nonebot_plugin_maestro.panel_client import PanelAPIClient
 
         for client in PanelAPIClient.all_from_config():
             if client.bot.self_id == bot_id:
@@ -58,7 +58,7 @@ class BotRegistry:
 
     def register_all_from_config(self) -> None:
         """按 QQ_BOTS 配置全量登记（独立模式用，不需要 WS 连接）。"""
-        from maestro.panel_client import PanelAPIClient
+        from nonebot_plugin_maestro.panel_client import PanelAPIClient
 
         for client in PanelAPIClient.all_from_config():
             self.add(client)

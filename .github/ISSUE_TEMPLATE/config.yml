@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 QQ 指令面板接口文档
+    url: https://bot.q.qq.com/wiki/develop/api-v2/server-inter/menu-panel/
+    about: 面板接口的字段定义、限频与错误码
+  - name: 📖 NoneBot 文档
+    url: https://nonebot.dev/
+    about: NoneBot 本身的使用问题请查阅官方文档
+  - name: 💬 讨论区
+    url: https://github.com/kanbereina/Maestro/discussions
+    about: 使用疑问与想法交流

@@ -5,26 +5,31 @@ REST API、静态资源挂载与随 NoneBot 启动的生命周期。
 """
 
 import asyncio
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager, suppress
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+from pathlib import Path
+from contextlib import suppress
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from maestro import CreatePanelRequest, Panel, UpdateTargetRequest
-from maestro.config import WebUIConfig
-from maestro.exceptions import PanelAPIError
-from maestro.logger import get_logger
-from maestro.registry import BotRegistry
+from nonebot_plugin_maestro.logger import get_logger
+from nonebot_plugin_maestro.models import (
+    Panel,
+    CreatePanelRequest,
+    UpdateTargetRequest,
+)
+from nonebot_plugin_maestro.registry import BotRegistry
+from nonebot_plugin_maestro.exceptions import PanelAPIError
 
 if TYPE_CHECKING:
-    from maestro.panel_client import PanelAPIClient
+    from nonebot_plugin_maestro.panel_client import PanelAPIClient
 
 STATIC_DIR = Path(__file__).parent / "static"
 INDEX_FILE = STATIC_DIR / "index.html"
+
+# 关停 uvicorn 时等待任务收尾的秒数
+SHUTDOWN_TIMEOUT = 5.0
 
 # 已连接机器人的客户端注册表
 registry = BotRegistry()
@@ -38,41 +43,13 @@ def get_client(bot_id: str) -> "PanelAPIClient":
     return client
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """独立运行（python -m maestro）时的生命周期：自行初始化 NoneBot。
-
-    随 NoneBot 启动时不会用到此函数——那种模式下 NoneBot 自己管理生命周期，
-    客户端由 on_bot_connect 钩子注册。
-    """
-    import nonebot
-    from nonebot.adapters.qq import Adapter as QQAdapter
-
-    # driver 固定为客户端组合：独立模式不需要 ASGI 服务端（跑在自己的
-    # uvicorn 上），但适配器 setup() 强制要求 HTTPClientMixin
-    nonebot.init(driver="~httpx+~websockets")
-    nonebot.get_driver().register_adapter(QQAdapter)
-
-    registry.register_all_from_config()
-
-    # 只用 info/warning：标准 logging 没有 loguru 的 success 级别
-    log = get_logger()
-    log.info(f"Maestro WebUI 已启动，共 {len(registry)} 个机器人")
-    for bot_id in registry.ids():
-        log.info(f"  - Bot {bot_id}")
-
-    yield
-
-    registry.clear()
-
-
 # ==================== FastAPI 应用 ====================
 
+# 不设 lifespan：插件由宿主 bot 加载，生命周期由 NoneBot 的钩子驱动
 app = FastAPI(
     title="Maestro - QQ 指令面板管理",
     description="NoneBot2 QQ 官方机器人指令面板可视化管理工具",
     version="0.1.0",
-    lifespan=lifespan,
 )
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -234,44 +211,20 @@ class WebUIServer:
         self._task = asyncio.create_task(server.serve())
         get_logger().info(f"Maestro WebUI 已启动: http://{self._host}:{self._port}")
 
-    async def stop(self, timeout: float = 5) -> None:
-        """请求 uvicorn 退出并等待任务收尾。"""
+    async def stop(self) -> None:
+        """请求 uvicorn 退出并等待任务收尾。
+
+        超时用模块常量而非入参：关停时限属实现细节，不应外推给调用方
+        （也是 ruff ASYNC109 的意图）。
+        """
         import uvicorn
 
         if isinstance(self._server, uvicorn.Server):
             self._server.should_exit = True
         if self._task is not None:
             with suppress(asyncio.CancelledError, TimeoutError):
-                await asyncio.wait_for(self._task, timeout=timeout)
+                await asyncio.wait_for(self._task, timeout=SHUTDOWN_TIMEOUT)
 
 
-def setup() -> None:
-    """随 NoneBot 启动 WebUI，并绑定 bot 连接钩子。
-
-    须在 `nonebot.init()` 与 `register_adapter()` 之后调用。
-    """
-    from nonebot import get_driver
-    from nonebot.adapters import Bot as BaseBot
-
-    driver = get_driver()
-    host, port = WebUIConfig.bind()
-    server = WebUIServer(app, host, port)
-
-    # 钩子参数必须标注为 nonebot.adapters.Bot 及其子类：
-    # NoneBot 的 BotParam 按类型解析注入，object 之类的标注会被拒绝
-    @driver.on_bot_connect
-    async def _on_connect(bot: BaseBot) -> None:
-        registry.register_by_id(bot.self_id)
-
-    @driver.on_bot_disconnect
-    async def _on_disconnect(bot: BaseBot) -> None:
-        registry.remove(bot.self_id)
-
-    @driver.on_startup
-    async def _start_webui() -> None:
-        await server.start()
-
-    @driver.on_shutdown
-    async def _stop_webui() -> None:
-        await server.stop()
-        registry.clear()
+# 生命周期钩子的绑定见 __init__._setup()：
+# 插件加载即注册，无需调用方手动 setup。
