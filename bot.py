@@ -13,14 +13,14 @@ WebUI 跑在自己的端口上（MAESTRO_HOST / MAESTRO_PORT，默认 127.0.0.1:
 import nonebot
 from nonebot.adapters.qq import Adapter as QQAdapter
 
+from maestro.webui import setup as setup_webui
+
 nonebot.init()
 
 driver = nonebot.get_driver()
 driver.register_adapter(QQAdapter)
 
-# 启动 WebUI（须在 register_adapter 之后：钩子依赖已注册的适配器）
-from maestro.webui import setup as setup_webui
-
+# 须在 register_adapter 之后：连接钩子依赖已注册的适配器
 setup_webui()
 
 if __name__ == "__main__":

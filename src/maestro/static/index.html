@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maestro - QQ 指令面板管理</title>
+    <link rel="icon" href="/static/logo.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- app.js 必须排在 Alpine 之前：两者同为 defer 时按文档顺序执行，
+         maestroApp() 需在 Alpine 初始化前完成定义 -->
+    <script defer src="/static/app.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <div x-data="maestroApp()" class="layout">
+        <!-- ============ 侧边栏 ============ -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <img class="sidebar-brand-icon" src="/static/logo.svg" alt="QQ机器人">
+                <div class="sidebar-brand-text">
+                    <div class="sidebar-brand-title">QQ机器人</div>
+                    <div class="sidebar-brand-sub">指令面板后台</div>
+                </div>
+            </div>
+
+            <div class="nav-section">机器人</div>
+            <button class="nav-item" :class="!activeBot ? 'is-active' : ''"
+                    @click="backToBots()">
+                <img class="nav-item-icon nav-item-logo" src="/static/logo.svg" alt="">
+                <span class="nav-item-label">我的机器人</span>
+            </button>
+
+            <!-- 底部卡片：参照官方侧边栏样式 -->
+            <div class="sidebar-footer">
+                <!-- 整张卡片作为作者主页链接；noopener 防止新页面反向操作本页 -->
+                <a class="sidebar-footer-card" href="https://github.com/kanbereina"
+                   target="_blank" rel="noopener noreferrer">
+                    <img src="/static/maestro.svg" alt="Maestro" class="sidebar-footer-icon">
+                    <div class="sidebar-footer-text">
+                        <div class="sidebar-footer-title">Maestro</div>
+                        <div class="sidebar-footer-version">v0.1.0</div>
+                        <div class="sidebar-footer-author">Worked by kanbereina</div>
+                    </div>
+                </a>
+            </div>
+        </aside>
+
+        <!-- ============ 主内容区 ============ -->
+        <main class="content">
+
+        <!-- ============ 视图一：机器人卡片 ============ -->
+        <div x-show="!activeBot">
+            <!-- 标题与数量提示同行，提示靠右（窄屏自动折行） -->
+            <div class="mb-6 flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                    <h1 class="text-2xl font-bold" style="color: var(--ink)">我的机器人</h1>
+                    <p class="text-sm mt-1" style="color: var(--ink-3)">
+                        管理当前已配置的 QQ 机器人账号
+                    </p>
+                </div>
+                <!-- 加载完成后才显示，避免闪现「0 个」 -->
+                <div class="limit-hint" x-show="!botsLoading">
+                    <span class="dot-g"></span>
+                    <span> 当前已配置的机器人数量：<b x-text="bots.length"></b> 个 </span>
+                </div>
+            </div>
+
+            <div x-show="botsLoading" class="text-center py-16" style="color: var(--ink-4)">
+                正在加载机器人信息...
+            </div>
+
+            <!-- 卡片定宽上限，避免宽屏下被拉得过长 -->
+            <div x-show="!botsLoading" class="bot-grid">
+                <template x-for="bot in bots" :key="bot.bot_id">
+                    <div @click="!bot.error && openBot(bot)"
+                         class="bot-card"
+                         :class="bot.error ? 'opacity-70 cursor-not-allowed' : 'is-clickable cursor-pointer'">
+                        <!-- 虚线之上：基础信息（名称、凭证、连通状态） -->
+                        <div class="bot-head">
+                            <div class="bot-avatar" style="background: rgba(60,60,67,.06)">
+                                <img x-show="bot.avatar" :src="bot.avatar"
+                                     :alt="bot.username || bot.bot_id" referrerpolicy="no-referrer">
+                                <span x-show="!bot.avatar" style="color: var(--ink-4)">🤖</span>
+                            </div>
+
+                            <div class="bot-info">
+                                <div class="bot-name-row">
+                                    <span class="bot-name text-[15px]" x-text="bot.username || '(未命名)'"></span>
+                                    <span class="bot-role-tag"
+                                          :class="bot.error ? 'role-member' : 'role-admin'">
+                                        <span class="role-icon" x-html="icons.shield"></span>
+                                        <span class="role-text" x-text="bot.error ? '凭证异常' : '凭证有效'"></span>
+                                    </span>
+                                </div>
+                                <div class="bot-status">
+                                    <span class="status-dot" :class="bot.error ? 'is-bad' : ''"></span>
+                                    <!-- 按项目约定：API 可访问即视为在线 -->
+                                    <span class="bot-status-text" x-text="bot.error ? '离线' : '在线'"></span>
+                                </div>
+                            </div>
+
+                            <span class="bot-action" x-show="!bot.error" x-html="icons.chevron"></span>
+                        </div>
+
+                        <!-- 虚线之下：标识信息（appId） -->
+                        <div class="bot-foot">
+                            <div class="bot-meta bot-stats">
+                                <span class="bot-meta-item" :title="`appId ${bot.bot_id}`">
+                                    <span class="bot-stat-icon" x-html="icons.hash"></span>
+                                    appId <b x-text="bot.bot_id"></b>
+                                </span>
+                            </div>
+                        </div>
+
+                        <p x-show="bot.error" class="mt-3 text-xs" style="color: var(--feedback_error)"
+                           x-text="bot.error"></p>
+                    </div>
+                </template>
+            </div>
+
+            <div x-show="!botsLoading && bots.length === 0"
+                 class="text-center py-16" style="color: var(--ink-4)">
+                未配置任何机器人，请检查 .env 中的 QQ_BOTS
+            </div>
+        </div>
+
+        <!-- ============ 视图二：指令面板配置 ============ -->
+        <div x-show="activeBot">
+            <template x-if="activeBot">
+                <!-- 标题与返回按钮同行，返回置于右侧 -->
+                <div class="mb-6 flex items-center justify-between gap-4 flex-wrap">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <img :src="activeBot.avatar" x-show="activeBot.avatar" referrerpolicy="no-referrer"
+                             class="w-11 h-11 rounded-full object-cover shrink-0"
+                             style="background: rgba(60,60,67,.06)">
+                        <div class="min-w-0">
+                            <h1 class="text-2xl font-bold truncate" style="color: var(--ink)"
+                                x-text="activeBot.username || activeBot.bot_id"></h1>
+                            <p class="text-sm mt-0.5" style="color: var(--ink-3)">
+                                <span class="font-mono" x-text="`appId ${activeBot.bot_id}`"></span>
+                            </p>
+                        </div>
+                    </div>
+                    <button @click="backToBots()" class="btn-ghost shrink-0">
+                        <span x-html="icons.back"></span>
+                        返回
+                    </button>
+                </div>
+            </template>
+
+            <!-- 场景切换（主页面内，不占用侧边栏）。
+                 计数按场景独立缓存，且仅在四个场景都拉完后显示，
+                 否则切换瞬间会短暂显示上一个场景的数字 -->
+            <div class="scope-tabs mb-5">
+                <template x-for="s in scopes" :key="s.value">
+                    <button class="scope-tab"
+                            :class="scope === s.value ? 'is-active' : ''"
+                            @click="switchScope(s.value)">
+                        <span class="scope-tab-icon" x-html="icons[s.value]"></span>
+                        <span x-text="s.label"></span>
+                        <span class="scope-tab-count"
+                              x-show="countsReady && scopeCounts[s.value] > 0"
+                              x-text="scopeCounts[s.value]"></span>
+                    </button>
+                </template>
+            </div>
+
+            <!-- 面板列表 -->
+            <div class="surface p-5 mb-6">
+                <div class="flex justify-between items-center mb-1 gap-4">
+                    <h2 class="text-lg font-semibold" style="color: var(--ink)">
+                        <span x-text="scopes.find(s => s.value === scope)?.label"></span>面板
+                    </h2>
+                    <button @click="showCreateModal = true"
+                            class="px-4 py-2 text-sm text-white rounded-lg shadow-sm transition shrink-0"
+                            style="background: var(--accent)">
+                        + 新建面板
+                    </button>
+                </div>
+                <p class="text-xs mb-4" style="color: var(--ink-4)" x-text="scopeHint()"></p>
+
+                <div x-show="loading" class="text-center py-10 text-[color:var(--ink-4)]">加载中...</div>
+
+                <!-- 面板卡片 -->
+                <div x-show="!loading && panels.length > 0" class="space-y-4">
+                    <template x-for="panel in panels" :key="panel.panel_id">
+                        <div class="rounded-lg p-4 transition" style="border: 1px solid var(--line)">
+                            <div class="flex justify-between items-start mb-3 gap-4">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-2 mb-1 flex-wrap">
+                                        <span class="font-mono text-sm text-[color:var(--ink-2)]" x-text="panel.panel_id"></span>
+                                        <span class="text-xs px-2 py-0.5 bg-slate-100 text-[color:var(--ink-2)] rounded-full"
+                                              x-text="panel.target_type === 'all' ? '全局' : '指定对象'"></span>
+                                        <span class="text-xs px-2 py-0.5 rounded-full" style="background: var(--accent-soft); color: var(--accent)"
+                                              x-text="`v${panel.version}`"></span>
+                                    </div>
+                                    <p class="text-sm text-[color:var(--ink-3)]">
+                                        <span x-text="panel.panel.items.length"></span> 个指令 ·
+                                        更新于 <span x-text="new Date(panel.updated_at).toLocaleString('zh-CN')"></span>
+                                    </p>
+                                    <!-- 开发者备注：带「开发者备注」标题，与元信息区分 -->
+                                    <div x-show="panel.panel.remark" class="remark mt-2">
+                                        <div class="remark-label">
+                                            <span class="remark-label-icon" x-html="icons.note"></span>
+                                            开发者备注
+                                        </div>
+                                        <p class="remark-body" x-text="panel.panel.remark"></p>
+                                    </div>
+                                </div>
+                                <div class="flex gap-2 shrink-0">
+                                    <button @click="viewPanel(panel)"
+                                            class="px-3 py-1 text-sm bg-slate-50 text-[color:var(--ink-2)] rounded-md hover:bg-slate-100 transition">
+                                        查看
+                                    </button>
+                                    <button @click="startEdit(panel)"
+                                            class="px-3 py-1 text-sm rounded-md transition" style="background: var(--accent-soft); color: var(--accent)">
+                                        编辑
+                                    </button>
+                                    <button @click="confirmDelete(panel.panel_id)"
+                                            class="px-3 py-1 text-sm bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition">
+                                        删除
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- 指令预览：超出 6 个以 … 省略 -->
+                            <div x-show="panel.panel.items.length > 0">
+                                <div class="field-label">当前配置指令：</div>
+                                <div class="flex flex-wrap gap-2 items-center">
+                                    <!-- key 用索引：指令名允许重复（实测同名会被 Alpine 按 key 去重，
+                                         导致 chip 少显示且与计数不符），预览只读故无重排问题 -->
+                                    <template x-for="(item, i) in panel.panel.items.slice(0, 6)" :key="i">
+                                        <span class="cmd-chip">
+                                            <span class="cmd-chip-icon"
+                                                  x-html="item.type === 'command' ? icons.slash : icons.link"></span>
+                                            <span x-text="item.name"></span>
+                                            <span x-show="item.only_admin" class="cmd-chip-admin"
+                                                  title="仅管理员可见">管</span>
+                                        </span>
+                                    </template>
+                                    <button x-show="panel.panel.items.length > 6" class="chip-more-btn"
+                                            @click.stop="viewPanel(panel)"
+                                            :title="panel.panel.items.slice(6).map(i => i.name).join('、')"
+                                            x-text="`... 其余 ${panel.panel.items.length - 6} 个`"></button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div x-show="!loading && panels.length === 0" class="text-center py-12 text-[color:var(--ink-4)]">
+                    当前场景暂无面板，点击右上角「新建面板」开始创建
+                </div>
+            </div>
+        </div>
+        </main>
+
+        <!-- 模态框放在 main 之外：position:fixed 覆盖全屏，不受内容列约束 -->
+
+        <!-- 创建面板模态框 -->
+        <div x-show="showCreateModal"
+             class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+             @click.self="showCreateModal = false">
+            <div class="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <h3 class="text-xl font-semibold mb-4">新建面板</h3>
+                <form @submit.prevent="createPanel()">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">备注（开发者可见）</label>
+                        <input x-model="newPanel.remark" type="text" maxlength="255"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-[color:var(--accent)] focus:border-[color:var(--accent)]"
+                               placeholder="选填，最多 255 字符">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">指令项</label>
+                        <p class="text-xs text-[color:var(--ink-4)] mb-2">拖动左侧 ⠿ 手柄可调整顺序</p>
+                        <div class="space-y-3">
+                            <template x-for="(item, index) in newPanel.items" :key="item._uid">
+                                <div draggable="true"
+                                     @dragstart="onDragStart(index, $event, 'new')"
+                                     @dragover.prevent="onDragOver(index)"
+                                     @drop.prevent="onDrop(index, 'new')"
+                                     @dragend="resetDrag()"
+                                     class="border rounded p-3 transition"
+                                     :class="[
+                                         dragIndex === index ? 'opacity-40' : '',
+                                         dragOverIndex === index && dragIndex !== index
+                                             ? 'border-2 bg-[color:var(--accent-soft)] border-[color:var(--accent)]'
+                                             : 'border-gray-200'
+                                     ]">
+                                    <div class="flex justify-between items-start mb-2">
+                                        <div class="flex items-center gap-2">
+                                            <span @mousedown="dragEnabled = true"
+                                                  class="cursor-grab active:cursor-grabbing select-none text-[color:var(--ink-4)] hover:text-[color:var(--ink-2)] px-1"
+                                                  title="拖动排序">⠿</span>
+                                            <span class="text-sm font-medium text-gray-600" x-text="`指令 ${index + 1}`"></span>
+                                        </div>
+                                        <button type="button" class="btn-danger"
+                                                @click="newPanel.items.splice(index, 1)">删除</button>
+                                    </div>
+                                    <input x-model="item.name" type="text" required
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-md mb-1 focus:outline-none focus:ring-[color:var(--accent)] focus:border-[color:var(--accent)]"
+                                           :class="width(item.name) > 14 ? 'border-red-400 bg-red-50' : ''"
+                                           placeholder="指令名称">
+                                    <p class="text-xs mb-2 text-right"
+                                       :class="width(item.name) > 14 ? 'text-red-600 font-medium' : 'text-gray-400'"
+                                       x-text="`名称宽度 ${width(item.name)}/14`"></p>
+                                    <input x-model="item.desc" type="text" required
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-md mb-1 focus:outline-none focus:ring-[color:var(--accent)] focus:border-[color:var(--accent)]"
+                                           :class="width(item.desc) > 30 ? 'border-red-400 bg-red-50' : ''"
+                                           placeholder="指令描述">
+                                    <p class="text-xs mb-2 text-right"
+                                       :class="width(item.desc) > 30 ? 'text-red-600 font-medium' : 'text-gray-400'"
+                                       x-text="`描述宽度 ${width(item.desc)}/30`"></p>
+                                    <div class="flex gap-4">
+                                        <select x-model="item.type"
+                                                class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-[color:var(--accent)] focus:border-[color:var(--accent)]">
+                                            <option value="command">命令</option>
+                                            <option value="link">链接</option>
+                                        </select>
+                                        <input x-show="item.type === 'link'" x-model="item.link" type="url"
+                                               class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-[color:var(--accent)] focus:border-[color:var(--accent)]"
+                                               placeholder="https://...">
+                                        <label class="admin-toggle"
+                                               :class="item.only_admin ? 'is-on' : ''">
+                                            <input type="checkbox" x-model="item.only_admin" class="rounded">
+                                            <span>仅管理员</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                        <button type="button" @click="addPanelItem()"
+                                :disabled="newPanel.items.length >= 20"
+                                class="mt-3 w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:border-[color:var(--accent)] hover:text-[color:var(--accent)] transition disabled:opacity-50 disabled:cursor-not-allowed">
+                            + 添加指令项（最多 20 个）
+                        </button>
+                    </div>
+                    <div class="flex gap-3 justify-end">
+                        <button type="button" @click="showCreateModal = false"
+                                class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition">
+                            取消
+                        </button>
+                        <button type="submit" :disabled="newPanel.items.length === 0"
+                                class="px-4 py-2 text-white rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed" style="background: var(--accent)">
+                            创建
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 编辑面板模态框 -->
+        <div x-show="editingPanel"
+             class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+             @click.self="editingPanel = null">
+            <div class="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <template x-if="editingPanel">
+                    <form @submit.prevent="saveEdit()">
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 class="text-xl font-semibold">编辑面板</h3>
+                                <p class="text-sm text-gray-500 mt-1">
+                                    <span x-text="editingPanel.panel_id"></span> ·
+                                    当前 v<span x-text="editingPanel.version"></span>
+                                </p>
+                            </div>
+                            <button type="button" @click="editingPanel = null"
+                                    class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">备注（开发者可见）</label>
+                            <input x-model="editForm.remark" type="text" maxlength="255"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-[color:var(--accent)] focus:border-[color:var(--accent)]"
+                                   placeholder="仅开发者可见，不展示给用户">
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                指令项（<span x-text="editForm.items.length"></span>/20）
+                            </label>
+                            <p class="text-xs text-[color:var(--ink-4)] mb-2">拖动左侧 ⠿ 手柄可调整顺序，顺序即用户看到的展示顺序</p>
+                            <div class="space-y-3">
+                                <template x-for="(item, index) in editForm.items" :key="item._uid">
+                                    <div draggable="true"
+                                         @dragstart="onDragStart(index, $event)"
+                                         @dragover.prevent="onDragOver(index)"
+                                         @drop.prevent="onDrop(index)"
+                                         @dragend="resetDrag()"
+                                         class="border rounded p-3 transition"
+                                         :class="[
+                                             dragIndex === index ? 'opacity-40' : '',
+                                             dragOverIndex === index && dragIndex !== index
+                                                 ? 'border-2 bg-[color:var(--accent-soft)] border-[color:var(--accent)]'
+                                                 : 'border-gray-200'
+                                         ]">
+                                        <div class="flex justify-between items-start mb-2">
+                                            <div class="flex items-center gap-2">
+                                                <span @mousedown="dragEnabled = true"
+                                                      class="cursor-grab active:cursor-grabbing select-none text-[color:var(--ink-4)] hover:text-[color:var(--ink-2)] px-1"
+                                                      title="拖动排序">⠿</span>
+                                                <span class="text-sm font-medium text-gray-600" x-text="`指令 ${index + 1}`"></span>
+                                            </div>
+                                            <div class="flex gap-2 items-center">
+                                                <div class="move-group">
+                                                    <button type="button" class="move-btn"
+                                                            @click="moveItem(index, -1)" :disabled="index === 0"
+                                                            title="上移">↑</button>
+                                                    <button type="button" class="move-btn"
+                                                            @click="moveItem(index, 1)"
+                                                            :disabled="index === editForm.items.length - 1"
+                                                            title="下移">↓</button>
+                                                </div>
+                                                <button type="button" class="btn-danger"
+                                                        @click="editForm.items.splice(index, 1)">删除</button>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <input x-model="item.name" type="text" required
+                                                   class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-[color:var(--accent)] focus:border-[color:var(--accent)]"
+                                                   :class="width(item.name) > 14 ? 'border-red-400 bg-red-50' : ''"
+                                                   placeholder="指令名称">
+                                            <span class="text-xs w-12 text-right"
+                                                  :class="width(item.name) > 14 ? 'text-red-600 font-medium' : 'text-gray-400'"
+                                                  x-text="`${width(item.name)}/14`"></span>
+                                        </div>
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <input x-model="item.desc" type="text" required
+                                                   class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-[color:var(--accent)] focus:border-[color:var(--accent)]"
+                                                   :class="width(item.desc) > 30 ? 'border-red-400 bg-red-50' : ''"
+                                                   placeholder="指令描述">
+                                            <span class="text-xs w-12 text-right"
+                                                  :class="width(item.desc) > 30 ? 'text-red-600 font-medium' : 'text-gray-400'"
+                                                  x-text="`${width(item.desc)}/30`"></span>
+                                        </div>
+                                        <div class="flex gap-4">
+                                            <select x-model="item.type"
+                                                    class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-[color:var(--accent)] focus:border-[color:var(--accent)]">
+                                                <option value="command">命令</option>
+                                                <option value="link">链接</option>
+                                            </select>
+                                            <input x-show="item.type === 'link'" x-model="item.link" type="url"
+                                                   class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-[color:var(--accent)] focus:border-[color:var(--accent)]"
+                                                   placeholder="https://...">
+                                            <label class="admin-toggle"
+                                                   :class="item.only_admin ? 'is-on' : ''">
+                                                <input type="checkbox" x-model="item.only_admin" class="rounded">
+                                                <span>仅管理员</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                            <button type="button" @click="addEditItem()"
+                                    :disabled="editForm.items.length >= 20"
+                                    class="mt-3 w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:border-[color:var(--accent)] hover:text-[color:var(--accent)] transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                + 添加指令项（最多 20 个）
+                            </button>
+                        </div>
+                        <div class="flex gap-3 justify-end">
+                            <button type="button" @click="editingPanel = null"
+                                    class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition">
+                                取消
+                            </button>
+                            <button type="submit" :disabled="editForm.items.length === 0 || saving"
+                                    class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                <span x-text="saving ? '保存中...' : '保存'"></span>
+                            </button>
+                        </div>
+                    </form>
+                </template>
+            </div>
+        </div>
+
+        <!-- 查看面板模态框 -->
+        <div x-show="viewingPanel"
+             class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+             @click.self="viewingPanel = null">
+            <div class="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <template x-if="viewingPanel">
+                    <div>
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 class="text-xl font-semibold" x-text="viewingPanel.panel_id"></h3>
+                                <p class="text-sm text-gray-500 mt-1">
+                                    版本: v<span x-text="viewingPanel.version"></span> |
+                                    创建: <span x-text="new Date(viewingPanel.created_at).toLocaleString('zh-CN')"></span>
+                                </p>
+                            </div>
+                            <button @click="viewingPanel = null" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                        </div>
+                        <div x-show="viewingPanel.panel.remark" class="remark mb-4">
+                            <div class="remark-label">
+                                <span class="remark-label-icon" x-html="icons.note"></span>
+                                开发者备注
+                            </div>
+                            <p class="remark-body" x-text="viewingPanel.panel.remark"></p>
+                        </div>
+                        <div class="field-label">当前配置指令：</div>
+                        <div class="space-y-3">
+                            <!-- 同上：指令名可能重复，key 用索引避免被去重 -->
+                            <template x-for="(item, i) in viewingPanel.panel.items" :key="i">
+                                <div class="border border-gray-200 rounded p-3">
+                                    <div class="flex items-start justify-between mb-1">
+                                        <div class="flex items-center gap-2">
+                                            <span class="cmd-chip-icon"
+                                                  x-html="item.type === 'command' ? icons.slash : icons.link"></span>
+                                            <span class="font-medium" x-text="item.name"></span>
+                                            <span x-show="item.only_admin" class="cmd-chip-admin">仅管理员</span>
+                                        </div>
+                                    </div>
+                                    <p class="text-sm text-gray-600" x-text="item.desc"></p>
+                                    <p x-show="item.link" class="text-sm mt-1"
+                                       style="color: var(--accent)" x-text="item.link"></p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
