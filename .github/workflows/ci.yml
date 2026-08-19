@@ -6,12 +6,17 @@ on:
       - main
       - master
   pull_request:
+    # 覆盖仓库中所有会被这五个 job 检查/影响的文件类型。分支保护要求这五个
+    # job 必须通过才能合并——若某类改动（如纯文档）从不匹配这里的路径，
+    # 对应的 required status check 永不产生，PR 会永久卡在无法合并的状态。
     paths:
       - "src/**"
       - "tests/**"
       - "uv.lock"
       - "pyproject.toml"
       - ".github/workflows/**"
+      - "**.md"
+      - "docs/**"
 
 jobs:
   lint:
