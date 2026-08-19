@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
+  <!-- Logo Graphics Group - Scaled Up -->
+  <g fill="none" stroke="#E35553" stroke-width="15" stroke-linecap="round" stroke-linejoin="round" transform="translate(250, 250) scale(1.28) translate(-250, -250)">
+    <!-- Outer Circle -->
+    <circle cx="250" cy="250" r="140"/>
+
+    <!-- Left Soundwave -->
+    <path d="M 172 276 C 182 246 208 230 238 230"/>
+
+    <!-- Central Note Head - smooth curved redesign -->
+    <path d="M 235 272 C 210 272 195 282 192 298 C 189 314 196 328 210 334 C 224 340 240 334 248 322 C 256 310 262 290 267 264 L 272 180 C 275 166 278 158 280 154 C 282 150 280 158 278 166 C 276 180 292 198 300 212 C 308 226 304 242 290 248"/>
+
+    <!-- Right Soundwave -->
+    <path d="M 284 303 C 306 301 326 286 336 250"/>
+  </g>
+</svg>

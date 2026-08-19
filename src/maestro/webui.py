@@ -3,8 +3,9 @@
 提供面板管理的 REST API 和前端界面。
 """
 
+import os
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal
 
@@ -22,6 +23,72 @@ from maestro.exceptions import PanelAPIError
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+# WebUI 默认监听地址。有意避开 NoneBot 默认的 8080，
+# 使 WebUI 与 bot 服务各占一个端口、可同时运行。
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8100
+
+
+def _nonebot_extra() -> dict[str, object]:
+    """取 NoneBot 配置中的额外字段（.env 里的自定义项落在这里）。
+
+    NoneBot 用 pydantic-settings 读 .env，**不会**写回 os.environ，
+    所以只查 os.getenv 会读不到 .env 里的 MAESTRO_* 配置。
+    未初始化或未安装 nonebot 时返回空字典。
+    """
+    try:
+        import nonebot
+
+        return nonebot.get_driver().config.model_extra or {}
+    except (ImportError, ValueError):
+        # ValueError: NoneBot 尚未 init（独立模式在 init 之前调用）
+        return {}
+
+
+def get_bind() -> tuple[str, int]:
+    """读取 WebUI 监听地址，两种启动方式共用同一套配置。
+
+    查找顺序：.env 中的 MAESTRO_HOST/MAESTRO_PORT
+    -> 同名环境变量 -> 内置默认值。
+    """
+    extra = _nonebot_extra()
+
+    def pick(key: str, default: str) -> str:
+        val = extra.get(key.lower())
+        if val is not None:
+            return str(val)
+        return os.getenv(key, default)
+
+    host = pick("MAESTRO_HOST", DEFAULT_HOST)
+    raw_port = pick("MAESTRO_PORT", str(DEFAULT_PORT))
+    try:
+        port = int(raw_port)
+    except ValueError:
+        _get_logger().warning(
+            f"MAESTRO_PORT={raw_port!r} 不是合法端口号，回退到 {DEFAULT_PORT}"
+        )
+        port = DEFAULT_PORT
+    return host, port
+
+# ==================== 日志 ====================
+
+
+def _get_logger():
+    """取 nonebot 的 logger，未安装时回退到标准 logging。
+
+    webui 在核心安装（无 qq extra）下也要能导入，故不在顶层 import nonebot。
+    """
+    try:
+        # 不用 logger.opt(colors=True)：消息里含 URL 与尖括号时会被当颜色标签解析
+        from nonebot.log import logger
+    except ImportError:
+        import logging
+
+        return logging.getLogger("maestro")
+    else:
+        return logger
+
+
 # ==================== 全局状态管理 ====================
 
 # bot id -> client，按 QQ_BOTS 顺序建立
@@ -36,34 +103,53 @@ def get_client(bot_id: str) -> PanelAPIClient:
     return client
 
 
+def register_bot(bot_id: str) -> None:
+    """注册一个已连接的 bot（由 NoneBot 的 on_bot_connect 钩子调用）。
+
+    面板管理是纯 REST 操作，客户端只借 Bot 的鉴权能力，不依赖 WS 会话本身；
+    但挂到连接钩子上可以保证：只有真正连上的 bot 才出现在 WebUI 里。
+    """
+    from maestro.panel_client import PanelAPIClient as _Client
+
+    for client in _Client.all_from_config():
+        if client.bot.self_id == bot_id:
+            _clients[bot_id] = client
+            return
+
+
+def unregister_bot(bot_id: str) -> None:
+    """移除已断开的 bot（on_bot_disconnect 钩子调用）。"""
+    _clients.pop(bot_id, None)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """FastAPI 生命周期管理：启动时初始化 NoneBot 与各机器人客户端。"""
-    # 需要 qq extra：uv sync --extra qq
+    """独立运行（python -m maestro）时的生命周期：自行初始化 NoneBot。
+
+    挂载到 NoneBot 的 ASGI app 时不会用到此函数——那种模式下 NoneBot
+    自己管理生命周期，客户端由 on_bot_connect 钩子注册。
+    """
     import nonebot
     from nonebot.adapters.qq import Adapter as QQAdapter
 
-    # 只初始化配置与适配器，不启动 NoneBot 驱动——服务跑在自己的 uvicorn 上。
-    # 适配器的 startup（建 WS / 挂 webhook 路由）不会触发，面板管理是纯 REST，
-    # 只用到 adapter.request 发请求。
-    #
-    # driver 在此固定，不读 .env 的 DRIVER：适配器 setup() 强制要求
-    # HTTPClientMixin，而 NoneBot 默认的 ~fastapi 不提供，会直接抛错。
+    # driver 固定为客户端组合：独立模式下不需要 ASGI 服务端（跑在自己的
+    # uvicorn 上），但适配器 setup() 强制要求 HTTPClientMixin
     nonebot.init(driver="~httpx+~websockets")
     nonebot.get_driver().register_adapter(QQAdapter)
 
     for client in PanelAPIClient.all_from_config():
         _clients[client.bot.self_id] = client
 
+    # 只用 info/warning：标准 logging 没有 loguru 的 success 级别
+    log = _get_logger()
     api_base = next(iter(_clients.values())).base_url
-    print(f"✓ Maestro WebUI 已启动，共 {len(_clients)} 个机器人")
+    log.info(f"Maestro WebUI 已启动，共 {len(_clients)} 个机器人")
     for bot_id in _clients:
-        print(f"  - {bot_id}")
-    print(f"  API Base: {api_base}")
+        log.info(f"  - Bot {bot_id}")
+    log.info(f"  API Base: {api_base}")
 
     yield
 
-    # 关闭时清理
     _clients.clear()
 
 
@@ -460,7 +546,7 @@ async def index():
       .sidebar-brand {
         display: flex; align-items: center; gap: 12px;
         padding: 4px 8px 18px; min-width: 0;
-        border-bottom: 1px dashed var(--line-strong);
+        border-bottom: 1px solid var(--line);
         margin-bottom: 8px;
       }
       .sidebar-brand-icon {
@@ -504,6 +590,74 @@ async def index():
         font-size: 12px; color: var(--ink-4); font-weight: 600;
         padding: 16px 12px 7px; letter-spacing: .04em;
       }
+
+      /* 侧边栏底部卡片：官方卡片样式（白底、圆角、细边框、浅阴影、hover 加深） */
+      .sidebar-footer {
+        margin-top: auto;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+      }
+      .sidebar-footer-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 14px;
+        background: #fff;
+        border: 1px solid rgba(60, 60, 67, .08);
+        border-radius: 18px;
+        box-shadow: 0 10px 24px rgba(17, 24, 39, .05);
+        cursor: pointer;
+        transition: background .15s, box-shadow .15s, border-color .15s;
+        text-align: center;
+        overflow: hidden;
+      }
+      .sidebar-footer-card:hover {
+        box-shadow: 0 12px 28px rgba(17, 24, 39, .08);
+        border-color: rgba(60, 60, 67, .12);
+      }
+      /* 作为 <a> 使用：去掉默认下划线与链接色 */
+      .sidebar-footer-card,
+      .sidebar-footer-card:hover { text-decoration: none; }
+      /* 悬停时署名转强调色，提示这是可点击的外链 */
+      .sidebar-footer-card:hover .sidebar-footer-author { color: var(--accent); }
+      .sidebar-footer-icon {
+        width: 48px;
+        height: 48px;
+        flex-shrink: 0;
+        border-radius: 12px;
+        object-fit: contain;
+      }
+      .sidebar-footer-text {
+        width: 100%;
+        line-height: 1.4;
+      }
+      .sidebar-footer-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text_primary);
+        letter-spacing: -0.01em;
+        margin-bottom: 2px;
+      }
+      .sidebar-footer-version {
+        font-size: 11px;
+        color: var(--text_secondary);
+        font-variant-numeric: tabular-nums;
+        margin-bottom: 4px;
+      }
+      .sidebar-footer-author {
+        font-size: 10px;
+        color: var(--text_tertiary);
+        letter-spacing: 0.01em;
+        transition: color .15s;
+      }
+
       /* 场景切换标签（主页面内）。下边框对齐成一条基线，
          选中项用 accent 色下划线，与 QQ 后台的分段导航一致 */
       /* 四个标签宽度有限，桌面端无需滚动；用 flex-wrap 兜住极窄屏，
@@ -553,7 +707,7 @@ async def index():
         .sidebar-brand {
           padding: 0 14px 0 4px; margin-bottom: 0;
           border-bottom: none;
-          border-right: 1px dashed var(--line-strong);
+          border-right: 1px solid var(--line);
         }
         .sidebar-brand-icon { width: 30px; height: 30px; }
         .sidebar-brand-sub { display: none; }
@@ -582,8 +736,18 @@ async def index():
                 <span class="nav-item-label">我的机器人</span>
             </button>
 
-            <div class="mt-auto pt-4" style="font-size: 11px; color: var(--ink-4)">
-                <div class="nav-item-label">Maestro · 本地管理工具</div>
+            <!-- 底部卡片：参照官方侧边栏样式 -->
+            <div class="sidebar-footer">
+                <!-- 整张卡片作为作者主页链接；noopener 防止新页面反向操作本页 -->
+                <a class="sidebar-footer-card" href="https://github.com/kanbereina"
+                   target="_blank" rel="noopener noreferrer">
+                    <img src="/static/maestro.svg" alt="Maestro" class="sidebar-footer-icon">
+                    <div class="sidebar-footer-text">
+                        <div class="sidebar-footer-title">Maestro</div>
+                        <div class="sidebar-footer-version">v0.1.0</div>
+                        <div class="sidebar-footer-author">Worked by kanbereina</div>
+                    </div>
+                </a>
             </div>
         </aside>
 
@@ -679,7 +843,6 @@ async def index():
                             <h1 class="text-2xl font-bold truncate" style="color: var(--ink)"
                                 x-text="activeBot.username || activeBot.bot_id"></h1>
                             <p class="text-sm mt-0.5" style="color: var(--ink-3)">
-                                指令面板配置 ·
                                 <span class="font-mono" x-text="`appId ${activeBot.bot_id}`"></span>
                             </p>
                         </div>
@@ -1491,3 +1654,63 @@ async def index():
 </body>
 </html>
 """
+
+
+# ==================== 挂载到 NoneBot ====================
+
+
+def setup() -> None:
+    """随 NoneBot 启动 WebUI，并绑定 bot 连接钩子。
+
+    WebUI 跑在自己的 uvicorn 上，监听 MAESTRO_HOST:MAESTRO_PORT，
+    与 NoneBot 的 HOST/PORT 相互独立——因此不要求 driver 提供 ASGI 服务端，
+    `DRIVER=~httpx+~websockets` 即可满足。
+
+    须在 `nonebot.init()` 与 `register_adapter()` 之后调用。
+    """
+    import asyncio
+
+    import uvicorn
+    from nonebot import get_driver
+    from nonebot.adapters import Bot as BaseBot
+
+    driver = get_driver()
+    host, port = get_bind()
+    log = _get_logger()
+
+    # uvicorn 服务实例与后台任务，供 startup/shutdown 钩子共享
+    state: dict[str, object] = {}
+
+    # 钩子参数必须标注为 nonebot.adapters.Bot 及其子类，
+    # NoneBot 的 BotParam 按类型解析注入，object 之类的标注会被拒绝
+    @driver.on_bot_connect
+    async def _on_connect(bot: BaseBot) -> None:
+        register_bot(bot.self_id)
+
+    @driver.on_bot_disconnect
+    async def _on_disconnect(bot: BaseBot) -> None:
+        unregister_bot(bot.self_id)
+
+    @driver.on_startup
+    async def _start_webui() -> None:
+        # 复用 NoneBot 所在的事件循环，作为后台任务运行，不阻塞 bot 启动。
+        # lifespan 设为 off：客户端由上面的 on_bot_connect 钩子注册，
+        # 不能再走 app 自带的 lifespan（那会重复 nonebot.init）
+        config = uvicorn.Config(
+            app, host=host, port=port, log_level="warning", lifespan="off"
+        )
+        server = uvicorn.Server(config)
+        state["server"] = server
+        state["task"] = asyncio.create_task(server.serve())
+        log.info(f"Maestro WebUI 已启动: http://{host}:{port}")
+
+    @driver.on_shutdown
+    async def _stop_webui() -> None:
+        server = state.get("server")
+        task = state.get("task")
+        if isinstance(server, uvicorn.Server):
+            server.should_exit = True
+        if isinstance(task, asyncio.Task):
+            with suppress(asyncio.CancelledError, TimeoutError):
+                await asyncio.wait_for(task, timeout=5)
+        _clients.clear()
