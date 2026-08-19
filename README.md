@@ -1,4 +1,5 @@
 <div align="center">
+<img src="src/nonebot_plugin_maestro/static/maestro.svg" width="160" height="160" alt="Maestro logo">
 
 # Maestro
 
@@ -94,6 +95,8 @@ uv run python bot.py # 本地起一个 bot 调试
 
 前端资源在 `src/nonebot_plugin_maestro/static/`（`index.html` / `app.css` / `app.js`），不内嵌在 Python 里。
 
+想贡献代码？看 [CONTRIBUTING.md](CONTRIBUTING.md)。面板接口的实测细节与架构决策见 [docs/](docs/README.md)。
+
 ## 许可
 
-MIT
+[MIT](LICENSE)
