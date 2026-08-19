@@ -1,47 +1,89 @@
 name: Release
 
+# 触发方式改为「检测版本号变更」而非「workflow 自己 bump 版本号」：
+# main 受分支保护（必须走 PR + 5 项检查），workflow 不能直推 main，
+# 也就不能像之前那样自己 bump + commit + push。现在的流程是：
+# 手动改 pyproject.toml 的 version、走 PR 合并到 main，workflow 只负责
+# 检测到新版本号后打 tag、发布 PyPI、生成 Release Notes。
 on:
-  # 手动触发：选版本类型，自动 bump、打 tag、发布
+  push:
+    branches:
+      - main
+    paths:
+      - pyproject.toml
+  # 手动触发：重新生成并覆盖指定版本的 Release Notes（用于补/修历史 release），
+  # 不用于发布新版本——发布新版本走上面的 push 触发。
   workflow_dispatch:
     inputs:
-      bump:
-        description: "版本递增类型"
-        required: true
-        type: choice
-        default: patch
-        options:
-          - patch
-          - minor
-          - major
-      dry_run:
-        description: "仅演练：跑测试与构建，不打 tag、不发布"
+      version:
+        description: "要重新生成 Release Notes 的版本号（如 1.5.3，留空则用 pyproject.toml 当前版本）"
         required: false
-        type: boolean
-        default: false
+        default: ""
 
-  # tag 触发：本地 `uv run poe bump` 后 push tag 也会发布
-  push:
-    tags:
-      - "v*"
+permissions:
+  contents: write
+
+# 同一时刻只允许一个发版流程，避免并发冲突
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
-    name: Build and Publish
     runs-on: ubuntu-latest
     environment: release
     permissions:
-      # id-token 供 PyPI 可信发布换取临时凭证，无需在仓库存 API token
-      id-token: write
-      # bump 需要回写版本号与 tag
       contents: write
+      # 供 PyPI 可信发布换取临时凭证，无需在仓库存 API token
+      id-token: write
 
     steps:
       - uses: actions/checkout@v6
         with:
-          # bump-my-version 打 tag 需要完整历史
+          # 拉取完整历史；fetch-tags 确保所有 tag 也被拉取（workflow_dispatch
+          # 从分支触发时 fetch-depth:0 未必带全 tag），供 Release Notes 对比版本
           fetch-depth: 0
+          fetch-tags: true
+
+      - name: 提取版本号
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          # 手动触发且填了版本号则用它，否则从 pyproject.toml 解析
+          if [ -n "${INPUT_VERSION}" ]; then
+            VERSION="${INPUT_VERSION#v}"  # 容错：去掉可能误带的 v 前缀
+          else
+            VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          fi
+          if [ -z "${VERSION}" ]; then
+            echo "::error::无法确定版本号"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "解析到版本号：${VERSION}"
+
+      - name: 检查 Tag 是否已存在
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          # 手动触发用于重生成已发布版本的 note，不跳过；
+          # push 触发时若 tag 已存在说明版本号未变更（比如改了别的字段），跳过发版。
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "::notice::手动触发，重新生成 ${TAG} 的 Release Notes"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::notice::Tag ${TAG} 已存在，版本号未变更，跳过发版"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag ${TAG} 不存在，继续发版流程"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup uv
+        if: steps.check.outputs.exists != 'true'
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
@@ -49,44 +91,29 @@ jobs:
           version: latest
 
       - name: Install Dependencies
+        if: steps.check.outputs.exists != 'true'
         run: uv sync --locked
 
-      # 发布不可撤销（PyPI 同版本号不允许重传），故先跑全套检查
+      # 发布不可撤销（PyPI 同版本号不允许重传），故先跑全套检查——
+      # PR 合并前 CI 已经跑过一遍，这里是发布前的最后一道保险
       - name: Ruff check
+        if: steps.check.outputs.exists != 'true'
         run: uv run ruff check .
 
       - name: Type check
+        if: steps.check.outputs.exists != 'true'
         run: uv run pyrefly check
 
       - name: Run tests
+        if: steps.check.outputs.exists != 'true'
         run: uv run pytest -q
 
-      - name: Configure Git
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      # 演练时加 --dry-run：否则仍会真实提交并打 tag，与「不发布」的语义矛盾
-      - name: Bump version
-        id: bump
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            uv run bump-my-version bump "${{ inputs.bump }}" --dry-run --verbose
-            NEW_VERSION=$(uv run bump-my-version show current_version)
-            echo "演练：版本将由 ${NEW_VERSION} 递增（未写入）"
-          else
-            uv run bump-my-version bump "${{ inputs.bump }}" --verbose
-            NEW_VERSION=$(uv run bump-my-version show current_version)
-            echo "打包版本: ${NEW_VERSION}"
-          fi
-          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-
       - name: Build
+        if: steps.check.outputs.exists != 'true'
         run: uv build
 
       - name: Check artifacts
+        if: steps.check.outputs.exists != 'true'
         run: |
           ls -lh dist/
           # 静态资源必须在 wheel 里，否则 WebUI 页面 404
@@ -101,23 +128,83 @@ jobs:
           print(f'{whl.name} 静态资源完整')
           "
 
-      - name: Push version commit and tag
-        if: github.event_name == 'workflow_dispatch' && inputs.dry_run != true
-        run: git push --follow-tags
-
-      - name: Publish to PyPI
-        if: ${{ inputs.dry_run != true }}
-        run: uv publish --trusted-publishing always
-
-      - name: Create GitHub Release
-        if: github.event_name == 'workflow_dispatch' && inputs.dry_run != true
+      - name: 生成 Release Notes
+        id: notes
+        if: steps.check.outputs.exists != 'true'
         env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ steps.bump.outputs.version }}" \
-            --generate-notes \
-            dist/*
+          # 范围上界：push 触发时新版本 tag 尚未打，用其目标 commit（当前 HEAD）；
+          # 手动触发（重生成已发布版本的 note）时该版本 tag 已存在，用 v${VERSION}。
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            UPPER="v${VERSION}"
+          else
+            UPPER="$(git rev-parse HEAD)"
+          fi
+          # 取上一个版本 tag：所有 v* tag 按语义化版本降序，排除当前版本自身后取最大者。
+          PREV_TAG=$(git tag --list "v*" --sort=-version:refname | grep -v "^v${VERSION}$" | head -1 || true)
 
-      - name: Dry run summary
-        if: ${{ inputs.dry_run == true }}
-        run: echo "演练完成：已构建但未发布、未打 tag"
+          # 用 GitHub compare API 取两点间 commit（服务端计算，不依赖本地克隆深度）。
+          # 首个版本无上个 tag 时，走 commits API 列出到当前点为止的提交。
+          if [ -n "${PREV_TAG}" ]; then
+            COMPARE="https://github.com/${REPO}/compare/${PREV_TAG}...v${VERSION}"
+            COMMITS_JSON=$(gh api "repos/${REPO}/compare/${PREV_TAG}...${UPPER}" --jq '.commits[] | "\(.commit.message | split("\n")[0])|\(.sha[0:7])"')
+          else
+            COMPARE="https://github.com/${REPO}/commits/v${VERSION}"
+            COMMITS_JSON=$(gh api "repos/${REPO}/commits?sha=${UPPER}" --jq '.[] | "\(.commit.message | split("\n")[0])|\(.sha[0:7])"')
+          fi
+          echo "DEBUG PREV_TAG=${PREV_TAG}，UPPER=${UPPER}，取到 commit 数=$(printf '%s\n' "${COMMITS_JSON}" | grep -c . || true)"
+
+          # 按 conventional commit 前缀分类（跳过发版提交与 merge 提交）
+          declare -a feat fix perf refactor docs test build other
+          while IFS="|" read -r subject hash; do
+            [ -z "${subject}" ] && continue
+            case "${subject}" in
+              "release: bump"*|"Merge "*) continue ;;
+            esac
+            line="- ${subject} (\`${hash}\`)"
+            case "${subject}" in
+              feat:*|feat：*|"feat("*|"feat!"*)             feat+=("${line}") ;;
+              fix:*|fix：*|"fix("*|"fix!"*)                 fix+=("${line}") ;;
+              perf:*|perf：*|"perf("*|"perf!"*)             perf+=("${line}") ;;
+              refactor:*|refactor：*|"refactor("*|"refactor!"*) refactor+=("${line}") ;;
+              docs:*|docs：*|"docs("*)                      docs+=("${line}") ;;
+              test:*|test：*|"test("*)                      test+=("${line}") ;;
+              build:*|build：*|"build("*|ci:*|ci：*|"ci("*|chore:*|chore：*|"chore("*) build+=("${line}") ;;
+              *) other+=("${line}") ;;
+            esac
+          done < <(printf '%s\n' "${COMMITS_JSON}")
+
+          {
+            [ ${#feat[@]}     -gt 0 ] && { printf "## ✨ 新特性\n";      printf "%s\n" "${feat[@]}";     printf "\n"; }
+            [ ${#fix[@]}      -gt 0 ] && { printf "## 🐛 修复\n";        printf "%s\n" "${fix[@]}";      printf "\n"; }
+            [ ${#perf[@]}     -gt 0 ] && { printf "## ⚡ 性能优化\n";     printf "%s\n" "${perf[@]}";     printf "\n"; }
+            [ ${#refactor[@]} -gt 0 ] && { printf "## ♻️ 重构\n";        printf "%s\n" "${refactor[@]}"; printf "\n"; }
+            [ ${#docs[@]}     -gt 0 ] && { printf "## 📝 文档\n";        printf "%s\n" "${docs[@]}";     printf "\n"; }
+            [ ${#test[@]}     -gt 0 ] && { printf "## ✅ 测试\n";        printf "%s\n" "${test[@]}";     printf "\n"; }
+            [ ${#build[@]}    -gt 0 ] && { printf "## 🔧 构建与 CI\n";   printf "%s\n" "${build[@]}";    printf "\n"; }
+            [ ${#other[@]}    -gt 0 ] && { printf "## 📦 其他\n";        printf "%s\n" "${other[@]}";    printf "\n"; }
+            printf "**Full Changelog**: %s\n" "${COMPARE}"
+          } > release_notes.md
+
+          echo "生成的 Release Notes："
+          cat release_notes.md
+
+      - name: Publish to PyPI
+        if: steps.check.outputs.exists != 'true'
+        run: uv publish --trusted-publishing always
+
+      - name: 创建 Release
+        if: steps.check.outputs.exists != 'true'
+        # action-gh-release 按 tag_name 自动创建 tag（指向当前 commit）并建 Release；
+        # 对已存在的 tag/release 会更新（覆盖 body），故手动触发可重生成历史版本 note。
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          body_path: release_notes.md
+          files: dist/*
+          make_latest: ${{ github.event_name == 'workflow_dispatch' && 'false' || 'true' }}

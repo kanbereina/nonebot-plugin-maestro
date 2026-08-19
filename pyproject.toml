@@ -52,10 +52,12 @@ build-backend = "uv_build"
 module-name = "nonebot_plugin_maestro"
 
 [tool.bumpversion]
+# commit/tag 均关闭：main 受分支保护，发版走「改版本号 -> PR -> 合并」，
+# 不再由本地 bump 直接 commit+tag+push。release.yml 检测到 main 上
+# pyproject.toml 的版本号变化后才打 tag、发 Release、发布 PyPI。
 current_version = "0.1.0"
-commit = true
-message = "release: bump version from {current_version} to {new_version}"
-tag = true
+commit = false
+tag = false
 
 [[tool.bumpversion.files]]
 filename = "uv.lock"
@@ -75,6 +77,8 @@ test = "pytest --cov=src --cov-report xml --junitxml=./junit.xml -n auto"
 typecheck = "pyrefly check"
 lint = "ruff check ."
 format = "ruff format ."
+# 只改文件（不 commit/tag，见 [tool.bumpversion]）：改完后自行走
+# git add + commit + 开 PR，合并到 main 才会触发发版
 bump = "bump-my-version bump"
 show-bump = "bump-my-version show-bump"
 
