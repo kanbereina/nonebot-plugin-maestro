@@ -9,7 +9,9 @@
 因此面板读写必须走适配器的通用请求出口：
 
 ```python
-from nonebot.drivers import Request  # 注意是 nonebot.drivers.Request，不是 httpx.Request
+from nonebot.drivers import (
+    Request,
+)  # 注意是 nonebot.drivers.Request，不是 httpx.Request
 
 resp = await bot._request(
     Request("GET", api_base / "v2/panels", params={"scope": "group"})
