@@ -1,0 +1,49 @@
+[project]
+name = "Maestro"
+version = "0.1.0"
+description = "适用 NoneBot2 的可视化管理 QQ 官方机器人指令面板"
+readme = "README.md"
+authors = [
+    { name = "KanbeReina", email = "kano.2525@qq.com" }
+]
+requires-python = ">=3.12, <3.14"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+]
+
+[project.optional-dependencies]
+# 走 QQ 适配器取鉴权时安装：uv sync --extra qq
+# nonebot2 下限 2.5.0 由 adapter-qq 1.7.2 强制（其声明 nonebot2>=2.5.0,<3）；
+# httpx / websockets extra 提供 ~httpx+~websockets driver 所需的客户端实现，
+# 适配器只声明 nonebot2 本体，不会自动带上这两个客户端
+qq = [
+    "nonebot-adapter-qq>=1.7.2",
+    "nonebot2[httpx,websockets]>=2.5.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.12,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "maestro"
+
+[dependency-groups]
+dev = [
+    "pyrefly>=1.2.0",
+    "ruff>=0.16.3",
+]
+
+[tool.ruff.lint]
+# UP（pyupgrade）：拦截弃用的 typing 别名（如 typing.Sequence）与旧式 Optional 写法
+extend-select = ["UP"]
+
+[tool.pyrefly]
+# 检查插件源码、入口与冒烟脚本（脚本对插件私有方法是字符串级依赖，重构后的
+# 失配靠静态检查提前拦截）；tests/ 大量使用假对象与 monkeypatch，实测按同一
+# 套严格度要求会产生数百条 cast 噪音，收益不大，不纳入
+project-includes = ["src", "bot.py", "scripts"]
+# strict 预设 = 默认之上加 implicit-any-parameter / implicit-any-type-argument /
+# implicit-any-empty-container / missing-override-decorator 四条
+preset = "strict"
