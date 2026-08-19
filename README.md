@@ -9,6 +9,17 @@
 
 </div>
 
+## 目录
+
+- [简介](#简介)
+- [界面预览](#界面预览)
+- [安装](#安装)
+- [配置](#配置)
+- [使用](#使用)
+- [注意事项](#注意事项)
+- [开发](#开发)
+- [许可](#许可)
+
 ## 简介
 
 QQ 官方机器人的指令面板（用户在聊天框看到的命令菜单）只能通过 [OpenAPI](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/menu-panel/) 管理，没有官方可视化界面。Maestro 作为 NoneBot 插件随 bot 启动，提供一个本地 WebUI 来做这件事：
@@ -18,6 +29,19 @@ QQ 官方机器人的指令面板（用户在聊天框看到的命令菜单）�
 - 指令项增删改、拖拽排序
 - 提交前本地校验：显示宽度、`https` 链接、数量上限
 - QQ 侧业务错误转成可读提示，不再是 `500 Internal Server Error`
+
+## 界面预览
+
+<table>
+<tr>
+<td><img src="docs/images/bot-list.jpeg" alt="机器人列表"></td>
+<td><img src="docs/images/panel-editor.jpeg" alt="面板编辑"></td>
+</tr>
+<tr>
+<td align="center">机器人列表</td>
+<td align="center">面板编辑</td>
+</tr>
+</table>
 
 ## 安装
 
