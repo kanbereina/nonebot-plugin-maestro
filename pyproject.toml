@@ -1,6 +1,6 @@
 [project]
 name = "nonebot-plugin-maestro"
-version = "0.1.2"
+version = "0.2.0"
 description = "QQ 官方机器人指令面板可视化管理工具"
 readme = "README.md"
 requires-python = ">=3.12, <3.14"
@@ -55,7 +55,7 @@ module-name = "nonebot_plugin_maestro"
 # commit/tag 均关闭：main 受分支保护，发版走「改版本号 -> PR -> 合并」，
 # 不再由本地 bump 直接 commit+tag+push。release.yml 检测到 main 上
 # pyproject.toml 的版本号变化后才打 tag、发 Release、发布 PyPI。
-current_version = "0.1.2"
+current_version = "0.2.0"
 commit = false
 tag = false
 
