@@ -206,5 +206,9 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
           body_path: release_notes.md
-          files: dist/*
+          # 只传构建产物：uv build 会在 dist/ 里生成 .gitignore（内容为 *），
+          # dist/* 通配会把它一并上传成 default.gitignore 附件
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
           make_latest: ${{ github.event_name == 'workflow_dispatch' && 'false' || 'true' }}
