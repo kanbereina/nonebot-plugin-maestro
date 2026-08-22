@@ -32,16 +32,17 @@ QQ 官方机器人的指令面板（用户在聊天框看到的命令菜单）�
 
 ## 界面预览
 
-<table>
-<tr>
-<td><img src="docs/images/bot-list.jpeg" alt="机器人列表"></td>
-<td><img src="docs/images/panel-editor.jpeg" alt="面板编辑"></td>
-</tr>
-<tr>
-<td align="center">机器人列表</td>
-<td align="center">面板编辑</td>
-</tr>
-</table>
+<p align="center">
+  <img src="docs/images/bot-list.jpeg" alt="机器人列表" width="900">
+  <br>
+  <sub>机器人列表</sub>
+</p>
+
+<p align="center">
+  <img src="docs/images/panel-editor.jpeg" alt="面板编辑" width="900">
+  <br>
+  <sub>面板编辑</sub>
+</p>
 
 ## 安装
 
@@ -94,7 +95,7 @@ DRIVER=~httpx+~websockets
 > WebUI 内置三层防护：绑定回环地址时启用 Host 白名单（防 DNS rebinding）、Origin 同源校验（防跨站请求，`no-cors` POST 也拦得住）、可选的 `MAESTRO_TOKEN` 令牌鉴权。
 
 > [!WARNING]
-> 若把 `MAESTRO_HOST` 改为 `0.0.0.0` 对外暴露，面板的写接口（含不可逆的删除）会暴露到网络上，**务必设置 `MAESTRO_TOKEN`**——此时 Host 白名单不生效，令牌是唯一的访问控制。
+> 若把 `MAESTRO_HOST` 改为非回环地址（如 `0.0.0.0`）公网部署，**必须同时设置 `MAESTRO_TOKEN`**——未设置令牌时 WebUI 会拒绝启动。此时 Host 白名单不生效，令牌是唯一的访问控制。
 
 ## 使用
 

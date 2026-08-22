@@ -18,6 +18,7 @@ from fastapi import Query, FastAPI, Request, HTTPException
 from fastapi.responses import Response, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from nonebot_plugin_maestro.config import LOOPBACK_BINDINGS
 from nonebot_plugin_maestro.logger import get_logger
 from nonebot_plugin_maestro.models import (
     Panel,
@@ -56,10 +57,6 @@ except PackageNotFoundError:
     PACKAGE_VERSION = "0.0.0"
 
 
-# 绑定这些地址时启用 Host 白名单（见 SecurityPolicy）
-_LOOPBACK_BINDINGS = {"127.0.0.1", "localhost", "::1"}
-
-
 class SecurityPolicy:
     """请求安全策略：Host 白名单 + Origin 同源校验 + 可选令牌。
 
@@ -72,7 +69,8 @@ class SecurityPolicy:
       Host 一致（浏览器对所有 POST 都带 Origin，no-cors 也拦得住）。
 
     绑定非回环地址（对外暴露）时无法枚举合法域名，Host 校验让位，
-    由 Origin 校验与 MAESTRO_TOKEN 兜底。令牌比较用常数时间，防时序侧信道。
+    由 Origin 校验与 MAESTRO_TOKEN 兜底——`_setup()` 已强制对外暴露
+    必须设令牌，走到这里时令牌恒非空。令牌比较用常数时间，防时序侧信道。
 
     由 `_setup()` 在插件加载时按配置注入；未注入（子模块独立导入、测试）
     时不拦截任何请求。
@@ -88,7 +86,7 @@ class SecurityPolicy:
         """按配置初始化策略（见 maestro_host / maestro_token）。"""
         self._configured = True
         self._token = token
-        if host in _LOOPBACK_BINDINGS:
+        if host in LOOPBACK_BINDINGS:
             self._enforce_host = True
             # 无端口的 Host 合法（HTTP/1.0 客户端、部分健康检查）
             self._allowed_hosts = {
