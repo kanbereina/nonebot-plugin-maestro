@@ -119,6 +119,17 @@ class TestIndex:
         assert "apiFetch" in js
 
 
+class TestCaching:
+    def test_index_no_cache(self, client: TestClient):
+        """页面禁用启发式缓存：升级换文件后浏览器立即拿到新页面。"""
+        resp = client.get("/")
+        assert resp.headers["cache-control"] == "no-cache"
+
+    def test_static_assets_no_cache(self, client: TestClient):
+        resp = client.get("/static/app.js")
+        assert resp.headers["cache-control"] == "no-cache"
+
+
 class TestOpenApi:
     def test_version_tracks_package(self, client: TestClient):
         """openapi 版本号取自包元数据，不再手写、不随发版漂移。"""

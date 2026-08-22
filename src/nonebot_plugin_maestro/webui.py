@@ -7,7 +7,7 @@ REST API、静态资源挂载与随 NoneBot 启动的生命周期。
 import math
 import asyncio
 import secrets
-from typing import TYPE_CHECKING, Literal, Annotated
+from typing import TYPE_CHECKING, Any, Literal, Annotated, override
 from pathlib import Path
 from contextlib import suppress
 from urllib.parse import urlparse
@@ -158,7 +158,23 @@ app = FastAPI(
     version=PACKAGE_VERSION,
 )
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+class NoCacheStaticFiles(StaticFiles):
+    """静态资源带 `Cache-Control: no-cache`。
+
+    没有该头时浏览器对静态文件做启发式缓存（凭 Last-Modified 猜新鲜期），
+    插件升级换了前端文件后，用户几小时内刷新也拿不到新页面。no-cache
+    并非不缓存：仍带 ETag 协商，未变化时是廉价的 304，本地几乎零开销。
+    """
+
+    @override
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/static", NoCacheStaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.middleware("http")
@@ -316,8 +332,15 @@ async def update_panel_target(bot_id: str, panel_id: str, req: UpdateTargetReque
 
 @app.get("/")
 async def index() -> FileResponse:
-    """返回前端单页应用（static/index.html）。"""
-    return FileResponse(INDEX_FILE, media_type="text/html")
+    """返回前端单页应用（static/index.html）。
+
+    no-cache 的理由见 NoCacheStaticFiles：升级后浏览器须立即拿到新页面。
+    """
+    return FileResponse(
+        INDEX_FILE,
+        media_type="text/html",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 # ==================== 随 NoneBot 启动 ====================
