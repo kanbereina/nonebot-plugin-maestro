@@ -160,7 +160,11 @@ class PanelAPIClient:
             body["group_openids"] = list(group_openids)
 
         resp = await self._call("POST", "/v2/panels", json=body)
-        return resp["panel_id"]
+        panel_id = resp.get("panel_id", "") if isinstance(resp, dict) else ""
+        if not panel_id:
+            # 响应结构意外时给可读错误，而非裸 KeyError 变 500
+            raise PanelAPIError(status_code=502, message="QQ 响应缺少 panel_id 字段")
+        return panel_id
 
     async def get_panel(self, panel_id: str) -> PanelRecord:
         """查询指令面板详情。"""
@@ -175,7 +179,10 @@ class PanelAPIClient:
         """
         body = {"panel": panel.model_dump(mode="json")}
         resp = await self._call("PUT", f"/v2/panels/{panel_id}", json=body)
-        return resp["version"]
+        new_version = resp.get("version") if isinstance(resp, dict) else None
+        if not isinstance(new_version, int):
+            raise PanelAPIError(status_code=502, message="QQ 响应缺少 version 字段")
+        return new_version
 
     async def delete_panel(self, panel_id: str) -> None:
         """删除指令面板（不可逆）。"""
