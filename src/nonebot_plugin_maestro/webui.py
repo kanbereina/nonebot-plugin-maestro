@@ -4,6 +4,7 @@
 REST API、静态资源挂载与随 NoneBot 启动的生命周期。
 """
 
+import math
 import asyncio
 import secrets
 from typing import TYPE_CHECKING, Literal, Annotated
@@ -24,6 +25,7 @@ from nonebot_plugin_maestro.models import (
     UpdateTargetRequest,
 )
 from nonebot_plugin_maestro.registry import BotRegistry
+from nonebot_plugin_maestro.throttle import WriteThrottler
 from nonebot_plugin_maestro.exceptions import PanelAPIError
 
 if TYPE_CHECKING:
@@ -41,6 +43,9 @@ SHUTDOWN_TIMEOUT = 5.0
 
 # 已连接机器人的客户端注册表
 registry = BotRegistry()
+
+# 写接口限速器（QQ 配额 10 QPM，见 throttle 模块说明）
+write_throttler = WriteThrottler()
 
 # 从已安装的发行版元数据取版本，与 bumpversion 管理的 pyproject 同源；
 # 手写版本号会在发版后漂移（bump 不改本文件）
@@ -132,6 +137,18 @@ def get_client(bot_id: str) -> "PanelAPIClient":
     if client is None:
         raise HTTPException(status_code=404, detail=f"未配置或未连接 bot {bot_id}")
     return client
+
+
+def throttle_write(bot_id: str) -> None:
+    """写接口限速：超出 QQ 10 QPM 配额的请求在本地就拒成 429。"""
+    wait = write_throttler.acquire(bot_id)
+    if wait > 0:
+        retry_after = math.ceil(wait)
+        raise HTTPException(
+            status_code=429,
+            detail=f"写操作过于频繁（QQ 侧配额 10 次/分钟），请 {retry_after} 秒后重试",
+            headers={"Retry-After": str(retry_after)},
+        )
 
 
 # ==================== FastAPI 应用 ====================
@@ -239,6 +256,7 @@ async def list_panels(
 async def create_panel(bot_id: str, req: CreatePanelRequest):
     """创建指令面板。"""
     client = get_client(bot_id)
+    throttle_write(bot_id)
     panel_id = await client.create_panel(
         req.scope,
         req.panel,
@@ -261,6 +279,7 @@ async def get_panel(bot_id: str, panel_id: str):
 async def update_panel(bot_id: str, panel_id: str, panel: Panel):
     """修改指令面板内容。"""
     client = get_client(bot_id)
+    throttle_write(bot_id)
     version = await client.update_panel(panel_id, panel)
     return {"version": version}
 
@@ -269,6 +288,7 @@ async def update_panel(bot_id: str, panel_id: str, panel: Panel):
 async def delete_panel(bot_id: str, panel_id: str):
     """删除指令面板（不可逆操作）。"""
     client = get_client(bot_id)
+    throttle_write(bot_id)
     await client.delete_panel(panel_id)
     return {"message": "删除成功"}
 
@@ -277,6 +297,7 @@ async def delete_panel(bot_id: str, panel_id: str):
 async def update_panel_target(bot_id: str, panel_id: str, req: UpdateTargetRequest):
     """增删面板关联对象。"""
     client = get_client(bot_id)
+    throttle_write(bot_id)
     await client.update_panel_target(
         panel_id,
         req.op,

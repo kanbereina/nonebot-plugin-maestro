@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from nonebot_plugin_maestro.webui import app, registry
+from nonebot_plugin_maestro.webui import app, registry, write_throttler
 from nonebot_plugin_maestro.models import BotProfile, PanelRecord, PanelListResponse
 from nonebot_plugin_maestro.exceptions import PanelAPIError
 
@@ -84,12 +84,14 @@ def fake_client() -> FakeClient:
 
 @pytest.fixture
 def client(fake_client: FakeClient):
-    """注册假客户端并提供 TestClient；测试结束清空注册表。"""
+    """注册假客户端并提供 TestClient；测试结束清空注册表与限速桶。"""
     registry.clear()
+    write_throttler.reset()
     registry.add(fake_client)  # type: ignore[arg-type]
     with TestClient(app) as c:
         yield c
     registry.clear()
+    write_throttler.reset()
 
 
 class TestIndex:
@@ -274,6 +276,30 @@ class TestPanelRoutes:
             f"/api/bots/{BOT_ID}/panels/p_x/target", json={"op": "remove"}
         )
         assert resp.status_code == 422
+
+
+class TestWriteThrottle:
+    def test_rapid_writes_get_429(self, client: TestClient, fake_client: FakeClient):
+        """连写超桶容量后本地 429 + Retry-After，第 4 次不再打 QQ。"""
+        payload = {
+            "scope": "group",
+            "panel": {"items": [], "remark": ""},
+            "target_type": "all",
+        }
+        for _ in range(3):
+            resp = client.post(f"/api/bots/{BOT_ID}/panels", json=payload)
+            assert resp.status_code == 200
+        fourth = client.post(f"/api/bots/{BOT_ID}/panels", json=payload)
+        assert fourth.status_code == 429
+        assert int(fourth.headers["Retry-After"]) >= 1
+        creates = [c for c in fake_client.calls if c[0] == "create_panel"]
+        assert len(creates) == 3
+
+    def test_reads_not_throttled(self, client: TestClient):
+        """限速只作用于写接口，读接口不受影响。"""
+        for _ in range(4):
+            resp = client.get(f"/api/bots/{BOT_ID}/panels", params={"scope": "group"})
+            assert resp.status_code == 200
 
 
 class TestErrorHandler:
