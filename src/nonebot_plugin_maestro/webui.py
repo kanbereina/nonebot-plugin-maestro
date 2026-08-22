@@ -204,6 +204,12 @@ async def panel_api_error_handler(request: Request, exc: PanelAPIError) -> JSONR
 # ==================== API 路由 ====================
 
 
+@app.get("/api/version")
+async def get_version() -> dict[str, str]:
+    """返回插件版本（前端页脚用，与包元数据同源）。"""
+    return {"version": PACKAGE_VERSION}
+
+
 @app.get("/api/bots")
 async def list_bots():
     """列出已注册机器人的信息（并发拉取 /users/@me）。

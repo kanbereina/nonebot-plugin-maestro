@@ -128,6 +128,22 @@ class TestOpenApi:
         assert resp.status_code == 200
         assert resp.json()["info"]["version"] == nonebot_plugin_maestro.__version__
 
+    def test_version_endpoint_tracks_package(self, client: TestClient):
+        """/api/version 与包版本同源，供前端页脚显示。"""
+        import nonebot_plugin_maestro
+
+        resp = client.get("/api/version")
+        assert resp.status_code == 200
+        assert resp.json() == {"version": nonebot_plugin_maestro.__version__}
+
+    def test_footer_version_not_hardcoded(self, client: TestClient):
+        """页脚版本号改为动态渲染，HTML 里不得再写死 v0.x。"""
+        html = client.get("/").text
+        assert "sidebar-footer-version" in html
+        assert "v0.1.0" not in html
+        js = client.get("/static/app.js").text
+        assert "/api/version" in js
+
 
 class TestStatic:
     @pytest.mark.parametrize("name", ["app.css", "app.js", "index.html"])

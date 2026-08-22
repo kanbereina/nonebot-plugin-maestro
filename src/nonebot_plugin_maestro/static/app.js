@@ -1,5 +1,7 @@
 function maestroApp() {
     return {
+        // 插件版本（页脚显示，init 时从 /api/version 取）
+        appVersion: '',
         bots: [],
         botsLoading: false,
         activeBot: null,
@@ -105,7 +107,16 @@ function maestroApp() {
         },
 
         async init() {
+            this.loadVersion();
             await this.loadBots();
+        },
+
+        // 页脚版本号从后端取（与包元数据同源），拿不到就留空
+        async loadVersion() {
+            try {
+                const resp = await this.apiFetch('/api/version');
+                if (resp.ok) this.appVersion = (await resp.json()).version;
+            } catch { /* 版本号拿不到无伤大雅 */ }
         },
 
         // ---- 统一请求封装：附加可选令牌（MAESTRO_TOKEN），401 时引导输入 ----
