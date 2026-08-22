@@ -62,6 +62,19 @@ class PanelAPIClient:
         return cls(Bot(adapter, bot_info.id, bot_info))
 
     @classmethod
+    def from_config_by_id(cls, bot_id: str) -> "PanelAPIClient | None":
+        """按 appId（即 self_id）从配置构造单个客户端，未找到返回 None。
+
+        供 on_bot_connect 钩子用：只构造匹配的那一个，不必
+        all_from_config() 全量建完再丢弃其余。
+        """
+        adapter = nonebot.get_adapter(QQAdapter)
+        for bot_info in adapter.qq_config.qq_bots:
+            if bot_info.id == bot_id:
+                return cls(Bot(adapter, bot_info.id, bot_info))
+        return None
+
+    @classmethod
     def all_from_config(cls) -> list["PanelAPIClient"]:
         """为 QQ_BOTS 中每个 bot 各建一个客户端，供多机器人卡片使用。"""
         adapter = nonebot.get_adapter(QQAdapter)
