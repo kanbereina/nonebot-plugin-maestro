@@ -5,13 +5,16 @@ REST API、静态资源挂载与随 NoneBot 启动的生命周期。
 """
 
 import asyncio
+import secrets
 from typing import TYPE_CHECKING, Literal, Annotated
 from pathlib import Path
 from contextlib import suppress
+from urllib.parse import urlparse
+from collections.abc import Callable, Awaitable
 from importlib.metadata import PackageNotFoundError, version
 
 from fastapi import Query, FastAPI, Request, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import Response, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from nonebot_plugin_maestro.logger import get_logger
@@ -48,6 +51,81 @@ except PackageNotFoundError:
     PACKAGE_VERSION = "0.0.0"
 
 
+# 绑定这些地址时启用 Host 白名单（见 SecurityPolicy）
+_LOOPBACK_BINDINGS = {"127.0.0.1", "localhost", "::1"}
+
+
+class SecurityPolicy:
+    """请求安全策略：Host 白名单 + Origin 同源校验 + 可选令牌。
+
+    面板写接口（含不可逆的删除）没有任何账号体系，须挡住两类浏览器侧
+    攻击，否则默认配置下任何网页都能借用户的浏览器操作本机端口：
+
+    - DNS rebinding：恶意域名解析到 127.0.0.1 后 Host 仍是该域名——
+      绑定回环地址时只放行回环 Host（等价 Jupyter 的本地 Host 检查）。
+    - CSRF：跨站请求的 Origin 与 Host 必然不同——Origin 存在时须与
+      Host 一致（浏览器对所有 POST 都带 Origin，no-cors 也拦得住）。
+
+    绑定非回环地址（对外暴露）时无法枚举合法域名，Host 校验让位，
+    由 Origin 校验与 MAESTRO_TOKEN 兜底。令牌比较用常数时间，防时序侧信道。
+
+    由 `_setup()` 在插件加载时按配置注入；未注入（子模块独立导入、测试）
+    时不拦截任何请求。
+    """
+
+    def __init__(self) -> None:
+        self._configured = False
+        self._enforce_host = False
+        self._allowed_hosts: set[str] = set()
+        self._token = ""
+
+    def configure(self, host: str, port: int, token: str = "") -> None:
+        """按配置初始化策略（见 maestro_host / maestro_token）。"""
+        self._configured = True
+        self._token = token
+        if host in _LOOPBACK_BINDINGS:
+            self._enforce_host = True
+            # 无端口的 Host 合法（HTTP/1.0 客户端、部分健康检查）
+            self._allowed_hosts = {
+                f"127.0.0.1:{port}",
+                f"localhost:{port}",
+                f"[::1]:{port}",
+                "127.0.0.1",
+                "localhost",
+                "[::1]",
+            }
+        else:
+            self._enforce_host = False
+
+    def reset(self) -> None:
+        """回到未配置状态（测试用）。"""
+        self._configured = False
+        self._enforce_host = False
+        self._allowed_hosts = set()
+        self._token = ""
+
+    def check(self, request: Request) -> HTTPException | None:
+        """校验请求，返回对应的 HTTPException；None 表示放行。"""
+        if not self._configured:
+            return None
+        host_header = (request.headers.get("host") or "").lower()
+        if self._enforce_host and host_header not in self._allowed_hosts:
+            return HTTPException(status_code=403, detail="Host 校验未通过")
+        origin = (request.headers.get("origin") or "").strip().lower()
+        if origin:
+            origin_netloc = urlparse(origin).netloc
+            if origin_netloc and origin_netloc != host_header:
+                return HTTPException(status_code=403, detail="跨站请求已被拦截")
+        if self._token and request.url.path.startswith("/api/"):
+            supplied = request.headers.get("x-maestro-token", "")
+            if not secrets.compare_digest(supplied, self._token):
+                return HTTPException(status_code=401, detail="访问令牌缺失或不正确")
+        return None
+
+
+security_policy = SecurityPolicy()
+
+
 def get_client(bot_id: str) -> "PanelAPIClient":
     """按 bot id 取客户端，未注册时返回 404。"""
     client = registry.get(bot_id)
@@ -66,6 +144,26 @@ app = FastAPI(
 )
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.middleware("http")
+async def security_guard(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """按 SecurityPolicy 拦截请求；拒绝时记 warning 便于发现探测行为。"""
+    denial = security_policy.check(request)
+    if denial is not None:
+        client = request.client.host if request.client else "?"
+        get_logger().warning(
+            f"Maestro WebUI 拒绝请求: {denial.detail} "
+            f"(path={request.url.path}, client={client})"
+        )
+        return JSONResponse(
+            status_code=denial.status_code,
+            content={"detail": denial.detail},
+            headers=denial.headers,
+        )
+    return await call_next(request)
 
 
 @app.exception_handler(PanelAPIError)
