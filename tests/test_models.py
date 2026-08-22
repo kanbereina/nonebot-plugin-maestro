@@ -14,7 +14,7 @@ from nonebot_plugin_maestro.models import (
     CreatePanelRequest,
     UpdateTargetRequest,
 )
-from nonebot_plugin_maestro.validation import MAX_ITEMS
+from nonebot_plugin_maestro.validation import MAX_ITEMS, MAX_OPENIDS_PER_REQUEST
 
 
 class TestPanelItem:
@@ -41,7 +41,7 @@ class TestPanelItem:
             PanelItem(name="官网", desc="打开官网", type="link", link="http://x.com")
 
     def test_link_type_rejects_missing_link(self):
-        with pytest.raises(ValidationError, match="https://"):
+        with pytest.raises(ValidationError, match="必须填写"):
             PanelItem(name="官网", desc="打开官网", type="link")
 
     def test_link_type_accepts_https(self):
@@ -119,3 +119,18 @@ class TestRequests:
     def test_update_target_rejects_bad_op(self):
         with pytest.raises(ValidationError):
             UpdateTargetRequest(op="remove")  # type: ignore[arg-type]
+
+    def test_create_rejects_too_many_openids(self):
+        """单次最多 20 个 openid，本地拦下不消耗 10 QPM 写配额。"""
+        with pytest.raises(ValidationError):
+            CreatePanelRequest(
+                scope="group",
+                panel=Panel(),
+                user_openids=["u"] * (MAX_OPENIDS_PER_REQUEST + 1),
+            )
+
+    def test_update_target_rejects_too_many_openids(self):
+        with pytest.raises(ValidationError):
+            UpdateTargetRequest(
+                op="add", group_openids=["g"] * (MAX_OPENIDS_PER_REQUEST + 1)
+            )

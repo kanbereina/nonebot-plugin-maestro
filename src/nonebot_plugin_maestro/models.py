@@ -13,6 +13,7 @@ from nonebot_plugin_maestro.validation import (
     DESC_MAX_WIDTH,
     NAME_MAX_WIDTH,
     REMARK_MAX_LENGTH,
+    MAX_OPENIDS_PER_REQUEST,
     check_width,
 )
 
@@ -46,10 +47,14 @@ class PanelItem(BaseModel):
 
     @model_validator(mode="after")
     def _check_link(self) -> "PanelItem":
-        if self.type == "link" and not (self.link or "").startswith("https://"):
-            raise ValueError(
-                f"链接类型的指令「{self.name}」的 link 必须以 https:// 开头"
-            )
+        if self.type == "link":
+            # 缺失与协议错误分开提示：套用 https 文案会误导「填了却没填对」
+            if not self.link:
+                raise ValueError(f"链接类型的指令「{self.name}」必须填写 link")
+            if not self.link.startswith("https://"):
+                raise ValueError(
+                    f"链接类型的指令「{self.name}」的 link 必须以 https:// 开头"
+                )
         return self
 
 
@@ -101,16 +106,33 @@ class CreatePanelRequest(BaseModel):
     scope: Literal["c2c", "group", "channel", "dm"]
     panel: Panel
     target_type: Literal["all", "specific"] = "all"
-    user_openids: list[str] = Field(default_factory=list)
-    group_openids: list[str] = Field(default_factory=list)
+    # 上限本地就拦（写接口仅 10 QPM，别拿必拒的请求消耗配额）
+    user_openids: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_OPENIDS_PER_REQUEST,
+        description="用户 openid 列表（单次最多 20）",
+    )
+    group_openids: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_OPENIDS_PER_REQUEST,
+        description="群 openid 列表（单次最多 20）",
+    )
 
 
 class UpdateTargetRequest(BaseModel):
     """增删面板关联对象请求体。"""
 
     op: Literal["add", "del"]
-    user_openids: list[str] = Field(default_factory=list)
-    group_openids: list[str] = Field(default_factory=list)
+    user_openids: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_OPENIDS_PER_REQUEST,
+        description="用户 openid 列表（单次最多 20）",
+    )
+    group_openids: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_OPENIDS_PER_REQUEST,
+        description="群 openid 列表（单次最多 20）",
+    )
 
 
 class BotProfile(BaseModel):

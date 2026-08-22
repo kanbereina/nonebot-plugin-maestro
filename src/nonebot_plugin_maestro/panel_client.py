@@ -62,6 +62,19 @@ class PanelAPIClient:
         return cls(Bot(adapter, bot_info.id, bot_info))
 
     @classmethod
+    def from_config_by_id(cls, bot_id: str) -> "PanelAPIClient | None":
+        """按 appId（即 self_id）从配置构造单个客户端，未找到返回 None。
+
+        供 on_bot_connect 钩子用：只构造匹配的那一个，不必
+        all_from_config() 全量建完再丢弃其余。
+        """
+        adapter = nonebot.get_adapter(QQAdapter)
+        for bot_info in adapter.qq_config.qq_bots:
+            if bot_info.id == bot_id:
+                return cls(Bot(adapter, bot_info.id, bot_info))
+        return None
+
+    @classmethod
     def all_from_config(cls) -> list["PanelAPIClient"]:
         """为 QQ_BOTS 中每个 bot 各建一个客户端，供多机器人卡片使用。"""
         adapter = nonebot.get_adapter(QQAdapter)
@@ -160,7 +173,11 @@ class PanelAPIClient:
             body["group_openids"] = list(group_openids)
 
         resp = await self._call("POST", "/v2/panels", json=body)
-        return resp["panel_id"]
+        panel_id = resp.get("panel_id", "") if isinstance(resp, dict) else ""
+        if not panel_id:
+            # 响应结构意外时给可读错误，而非裸 KeyError 变 500
+            raise PanelAPIError(status_code=502, message="QQ 响应缺少 panel_id 字段")
+        return panel_id
 
     async def get_panel(self, panel_id: str) -> PanelRecord:
         """查询指令面板详情。"""
@@ -175,7 +192,10 @@ class PanelAPIClient:
         """
         body = {"panel": panel.model_dump(mode="json")}
         resp = await self._call("PUT", f"/v2/panels/{panel_id}", json=body)
-        return resp["version"]
+        new_version = resp.get("version") if isinstance(resp, dict) else None
+        if not isinstance(new_version, int):
+            raise PanelAPIError(status_code=502, message="QQ 响应缺少 version 字段")
+        return new_version
 
     async def delete_panel(self, panel_id: str) -> None:
         """删除指令面板（不可逆）。"""

@@ -50,11 +50,11 @@ class BotRegistry:
         """
         from nonebot_plugin_maestro.panel_client import PanelAPIClient
 
-        for client in PanelAPIClient.all_from_config():
-            if client.bot.self_id == bot_id:
-                self._clients[bot_id] = client
-                return True
-        return False
+        client = PanelAPIClient.from_config_by_id(bot_id)
+        if client is None:
+            return False
+        self._clients[bot_id] = client
+        return True
 
     def register_all_from_config(self) -> None:
         """按 QQ_BOTS 配置全量登记（独立模式用，不需要 WS 连接）。"""
