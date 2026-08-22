@@ -10,10 +10,11 @@ from typing import TYPE_CHECKING, Literal, Annotated
 from pathlib import Path
 from contextlib import suppress
 from urllib.parse import urlparse
+from collections.abc import Callable, Awaitable
 from importlib.metadata import PackageNotFoundError, version
 
 from fastapi import Query, FastAPI, Request, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import Response, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from nonebot_plugin_maestro.logger import get_logger
@@ -146,7 +147,9 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.middleware("http")
-async def security_guard(request: Request, call_next):
+async def security_guard(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """按 SecurityPolicy 拦截请求；拒绝时记 warning 便于发现探测行为。"""
     denial = security_policy.check(request)
     if denial is not None:
