@@ -111,6 +111,16 @@ class TestIndex:
         assert body.index("/static/app.js") < body.index("alpinejs")
 
 
+class TestOpenApi:
+    def test_version_tracks_package(self, client: TestClient):
+        """openapi 版本号取自包元数据，不再手写、不随发版漂移。"""
+        import nonebot_plugin_maestro
+
+        resp = client.get("/openapi.json")
+        assert resp.status_code == 200
+        assert resp.json()["info"]["version"] == nonebot_plugin_maestro.__version__
+
+
 class TestStatic:
     @pytest.mark.parametrize("name", ["app.css", "app.js", "index.html"])
     def test_serves_assets(self, client: TestClient, name: str):

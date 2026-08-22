@@ -1,0 +1,3 @@
+# 统一文本文件为 LF：Windows 上 core.autocrlf 检出为 CRLF 会让
+# ruff format --check（配置 line-ending=lf）在本地全仓库误报
+* text=auto eol=lf
