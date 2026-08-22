@@ -39,7 +39,7 @@ __plugin_meta__ = PluginMetadata(
     extra={"author": "KanbeReina <kano.2525@qq.com>"},
 )
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "BotProfile",
