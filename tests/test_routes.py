@@ -110,6 +110,12 @@ class TestIndex:
         body = client.get("/").text
         assert body.index("/static/app.js") < body.index("alpinejs")
 
+    def test_app_js_sends_token_header(self, client: TestClient):
+        """app.js 统一走 apiFetch 并附加可选令牌头（配合 MAESTRO_TOKEN）。"""
+        js = client.get("/static/app.js").text
+        assert "X-Maestro-Token" in js
+        assert "apiFetch" in js
+
 
 class TestOpenApi:
     def test_version_tracks_package(self, client: TestClient):

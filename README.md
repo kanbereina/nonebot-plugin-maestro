@@ -80,6 +80,7 @@ plugins = ["nonebot_plugin_maestro"]
 | `MAESTRO_HOST` | `127.0.0.1` | WebUI 监听地址 |
 | `MAESTRO_PORT` | `8100` | WebUI 监听端口 |
 | `MAESTRO_ENABLED` | `true` | 是否启用 WebUI |
+| `MAESTRO_TOKEN` | 空（不启用） | API 访问令牌。设置后所有 `/api/*` 请求须携带 `X-Maestro-Token` 头；WebUI 会弹窗引导输入，也支持 `?token=...` 直接带入 |
 
 WebUI 跑在自己的 uvicorn 上，端口与 NoneBot 的 `PORT` 相互独立（默认 8100 就是为了避开 NoneBot 的 8080）。
 
@@ -89,8 +90,11 @@ driver 需提供 HTTP 客户端——适配器 `setup()` 强制要求 `HTTPClien
 DRIVER=~httpx+~websockets
 ```
 
+> [!NOTE]
+> WebUI 内置三层防护：绑定回环地址时启用 Host 白名单（防 DNS rebinding）、Origin 同源校验（防跨站请求，`no-cors` POST 也拦得住）、可选的 `MAESTRO_TOKEN` 令牌鉴权。
+
 > [!WARNING]
-> WebUI **没有鉴权**。默认只监听 `127.0.0.1`，仅本机可访问。若改为 `0.0.0.0`，面板的写接口（含删除）会暴露到网络上，请自行加访问控制。
+> 若把 `MAESTRO_HOST` 改为 `0.0.0.0` 对外暴露，面板的写接口（含不可逆的删除）会暴露到网络上，**务必设置 `MAESTRO_TOKEN`**——此时 Host 白名单不生效，令牌是唯一的访问控制。
 
 ## 使用
 

@@ -108,10 +108,41 @@ function maestroApp() {
             await this.loadBots();
         },
 
+        // ---- 统一请求封装：附加可选令牌（MAESTRO_TOKEN），401 时引导输入 ----
+
+        // 令牌优先从地址栏 ?token=... 取（书签/转发友好），存 sessionStorage
+        // 后立即从地址栏抹掉，避免留在历史记录里
+        authToken() {
+            const url = new URL(location.href);
+            const q = url.searchParams.get('token');
+            if (q) {
+                sessionStorage.setItem('maestro_token', q);
+                url.searchParams.delete('token');
+                history.replaceState(null, '', url);
+            }
+            return sessionStorage.getItem('maestro_token');
+        },
+
+        async apiFetch(url, options = {}) {
+            options.headers = { ...(options.headers || {}) };
+            const token = this.authToken();
+            if (token) options.headers['X-Maestro-Token'] = token;
+            const resp = await fetch(url, options);
+            // 401 = 令牌缺失/错误：引导输入后重试一次（只一次，避免循环弹窗）
+            if (resp.status === 401 && !options._retriedAuth) {
+                const input = prompt('该 WebUI 已启用令牌鉴权（MAESTRO_TOKEN），请输入访问令牌：');
+                if (input !== null) {
+                    sessionStorage.setItem('maestro_token', input.trim());
+                    return this.apiFetch(url, { ...options, _retriedAuth: true });
+                }
+            }
+            return resp;
+        },
+
         async loadBots() {
             this.botsLoading = true;
             try {
-                const resp = await fetch('/api/bots');
+                const resp = await this.apiFetch('/api/bots');
                 if (!resp.ok) throw new Error(await this.errorMessage(resp));
                 const data = await resp.json();
                 this.bots = data.bots || [];
@@ -157,7 +188,7 @@ function maestroApp() {
         // 取单个场景的面板列表；失败按空列表处理，不阻断其它场景
         async fetchScope(scope) {
             try {
-                const resp = await fetch(
+                const resp = await this.apiFetch(
                     `/api/bots/${this.activeBot.bot_id}/panels?scope=${scope}&limit=50`
                 );
                 if (!resp.ok) return [];
@@ -223,7 +254,7 @@ function maestroApp() {
             if (!this.activeBot) return;
             this.loading = true;
             try {
-                const resp = await fetch(
+                const resp = await this.apiFetch(
                     `/api/bots/${this.activeBot.bot_id}/panels?scope=${this.scope}&limit=50`
                 );
                 if (!resp.ok) throw new Error(await this.errorMessage(resp));
@@ -257,7 +288,7 @@ function maestroApp() {
                 return;
             }
             try {
-                const resp = await fetch(`/api/bots/${this.activeBot.bot_id}/panels`, {
+                const resp = await this.apiFetch(`/api/bots/${this.activeBot.bot_id}/panels`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -367,7 +398,7 @@ function maestroApp() {
             this.saving = true;
             try {
                 const url = `/api/bots/${this.activeBot.bot_id}/panels/${this.editingPanel.panel_id}`;
-                const resp = await fetch(url, {
+                const resp = await this.apiFetch(url, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -411,7 +442,7 @@ function maestroApp() {
         async confirmDelete(panelId) {
             if (!confirm(`确定要删除面板 ${panelId}？此操作不可逆。`)) return;
             try {
-                const resp = await fetch(
+                const resp = await this.apiFetch(
                     `/api/bots/${this.activeBot.bot_id}/panels/${panelId}`,
                     { method: 'DELETE' }
                 );
