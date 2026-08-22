@@ -6,7 +6,7 @@ Config 是纯 pydantic 模型，直接实例化即可测——不需要 NoneBot 
 import pytest
 from pydantic import ValidationError
 
-from nonebot_plugin_maestro.config import Config
+from nonebot_plugin_maestro.config import Config, exposure_problem
 
 
 class TestDefaults:
@@ -48,3 +48,22 @@ class TestOverrides:
     def test_rejects_non_numeric_port(self):
         with pytest.raises(ValidationError):
             Config.model_validate({"maestro_port": "not-a-port"})
+
+
+class TestExposureEnforcement:
+    """公网部署缺令牌时必须拒绝（WebUI 拒绝启动，bot 不受影响）。"""
+
+    @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
+    def test_loopback_without_token_is_fine(self, host: str):
+        """本机绑定保持零配置可用（发布规范）。"""
+        assert exposure_problem(host, "") is None
+
+    def test_exposed_with_token_is_fine(self):
+        assert exposure_problem("0.0.0.0", "s3cret") is None
+
+    @pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.10", "::", "example.com"])
+    def test_exposed_without_token_is_rejected(self, host: str):
+        """非回环绑定（IPv4/IPv6 通配、内网 IP、域名）空令牌一律拒绝。"""
+        problem = exposure_problem(host, "")
+        assert problem is not None
+        assert "MAESTRO_TOKEN" in problem

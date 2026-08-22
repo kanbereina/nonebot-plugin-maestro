@@ -5,7 +5,7 @@ from nonebot.plugin import PluginMetadata
 from nonebot.adapters import Bot as BaseBot
 
 from nonebot_plugin_maestro.webui import WebUIServer, app, registry, security_policy
-from nonebot_plugin_maestro.config import Config, get_config
+from nonebot_plugin_maestro.config import Config, get_config, exposure_problem
 from nonebot_plugin_maestro.logger import get_logger
 from nonebot_plugin_maestro.models import (
     Panel,
@@ -29,7 +29,7 @@ __plugin_meta__ = PluginMetadata(
         "  MAESTRO_HOST=127.0.0.1  # 监听地址\n"
         "  MAESTRO_PORT=8100       # 监听端口\n"
         "  MAESTRO_ENABLED=true    # 是否启用\n"
-        "  MAESTRO_TOKEN=          # API 令牌；对外暴露（0.0.0.0）时务必设置"
+        "  MAESTRO_TOKEN=          # API 令牌；非回环绑定（公网部署）必须设置"
     ),
     type="application",
     homepage="https://github.com/kanbereina/nonebot-plugin-maestro",
@@ -74,6 +74,17 @@ def _setup() -> None:
 
     log = get_logger()
 
+    if not config.maestro_enabled:
+        log.info("Maestro WebUI 已通过 MAESTRO_ENABLED=false 停用")
+        return
+
+    # 公网部署必须带令牌：写接口（含不可逆删除）没有账号体系，
+    # 令牌是唯一的访问控制——空令牌的对外暴露直接拒绝启动
+    problem = exposure_problem(config.maestro_host, config.maestro_token)
+    if problem is not None:
+        log.error(f"{problem}；已跳过 WebUI，插件其余功能不受影响")
+        return
+
     # 先于 WebUI 启动注入安全策略：Host 白名单 / Origin 同源 / 可选令牌
     security_policy.configure(
         host=config.maestro_host,
@@ -82,10 +93,6 @@ def _setup() -> None:
     )
     if config.maestro_token:
         log.info("Maestro WebUI 已启用令牌鉴权（MAESTRO_TOKEN）")
-
-    if not config.maestro_enabled:
-        log.info("Maestro WebUI 已通过 MAESTRO_ENABLED=false 停用")
-        return
 
     driver = get_driver()
     server = WebUIServer(app, config.maestro_host, config.maestro_port)
