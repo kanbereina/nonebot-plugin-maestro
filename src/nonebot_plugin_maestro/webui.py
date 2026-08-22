@@ -5,11 +5,11 @@ REST API、静态资源挂载与随 NoneBot 启动的生命周期。
 """
 
 import asyncio
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Annotated
 from pathlib import Path
 from contextlib import suppress
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import Query, FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -23,6 +23,10 @@ from nonebot_plugin_maestro.registry import BotRegistry
 from nonebot_plugin_maestro.exceptions import PanelAPIError
 
 if TYPE_CHECKING:
+    import socket
+
+    import uvicorn
+
     from nonebot_plugin_maestro.panel_client import PanelAPIClient
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -88,13 +92,18 @@ async def list_bots():
             me = await client.get_me()
             return {**me.model_dump(mode="json"), "bot_id": bot_id}
         except PanelAPIError as e:
-            # 单个机器人凭证失效不该让整页打不开
-            return {
-                "bot_id": bot_id,
-                "id": bot_id,
-                "username": None,
-                "error": e.describe(),
-            }
+            reason = e.describe()
+        except Exception as e:
+            # 网络层异常（NetworkError：QQ 网关不可达/超时）同样只源于
+            # 单个机器人的请求，不该让 asyncio.gather 整体失败、全页 500
+            reason = str(e) or e.__class__.__name__
+        # 单个机器人凭证失效或网络异常不该让整页打不开
+        return {
+            "bot_id": bot_id,
+            "id": bot_id,
+            "username": None,
+            "error": reason,
+        }
 
     results = await asyncio.gather(
         *(profile(bot_id, c) for bot_id, c in registry.items())
@@ -107,7 +116,8 @@ async def list_panels(
     bot_id: str,
     scope: Literal["c2c", "group", "channel", "dm"],
     cursor: str = "",
-    limit: int = 20,
+    # 本地拦下越界值（QQ 侧上限 50），别拿无效输入消耗 API 配额
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ):
     """查询指令面板列表。"""
     client = get_client(bot_id)
@@ -190,12 +200,30 @@ class WebUIServer:
         self._app = asgi_app
         self._host = host
         self._port = port
-        self._server: object | None = None
+        self._server: "uvicorn.Server | None" = None
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        """在当前事件循环中以后台任务启动，不阻塞 bot 连接。"""
+        """在当前事件循环中以后台任务启动，端口绑定失败时不掀翻宿主 bot。
+
+        关键：先自行 `socket.bind` 再把已绑定的 socket 交给 uvicorn。
+        若让 uvicorn 自行绑定，端口占用时它会在 serve() 任务内
+        `sys.exit(STARTUP_FAILURE)`——该 SystemExit 从任务抛出后会冒泡穿过
+        事件循环、连带掀翻整个 NoneBot 进程；且原实现不等绑定结果就打
+        「已启动」会掩盖失败。改为预绑定：占用时这里同步收到普通 OSError，
+        据此如实报错并跳过启动，插件其余部分与宿主 bot 均不受影响。
+        """
         import uvicorn
+
+        log = get_logger()
+        try:
+            sock = self._bind_socket()
+        except OSError as exc:
+            log.error(
+                f"Maestro WebUI 启动失败: 无法监听 http://{self._host}:{self._port}"
+                f"（{exc.strerror or exc}，端口可能被占用），插件其余功能不受影响"
+            )
+            return
 
         # lifespan=off：客户端由 on_bot_connect 钩子注册，
         # 不能再走 app 自带的 lifespan（那会重复 nonebot.init）
@@ -208,8 +236,36 @@ class WebUIServer:
         )
         server = uvicorn.Server(config)
         self._server = server
-        self._task = asyncio.create_task(server.serve())
-        get_logger().info(f"Maestro WebUI 已启动: http://{self._host}:{self._port}")
+        # 传入已绑定 socket：uvicorn 走 sockets 分支、不再自行绑定，
+        # 也就不会在任务内 sys.exit（见 uvicorn Server.startup 的分支）
+        self._task = asyncio.create_task(server.serve(sockets=[sock]))
+        log.info(f"Maestro WebUI 已启动: http://{self._host}:{self._port}")
+
+    def _bind_socket(self) -> "socket.socket":
+        """按 host:port 绑定，端口占用等失败时抛 OSError。
+
+        只绑定、不 listen——`listen()` 由 uvicorn 内部的 create_server 负责
+        （与 uvicorn 自身的 Config.bind_socket 一致）；这里只为在启动前同步
+        探到端口冲突。
+
+        SO_REUSEADDR 仅在 POSIX 设置：Windows 上该选项语义相反，会允许绑定到
+        已被其它进程占用的端口（端口劫持），反而使冲突探测失效。asyncio 的
+        create_server 也是仅 POSIX 置位，此处对齐其行为。
+        """
+        import os
+        import socket
+
+        family = socket.AF_INET6 if ":" in self._host else socket.AF_INET
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        if os.name == "posix":
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((self._host, self._port))
+        except OSError:
+            sock.close()
+            raise
+        sock.set_inheritable(True)
+        return sock
 
     async def stop(self) -> None:
         """请求 uvicorn 退出并等待任务收尾。
@@ -217,9 +273,7 @@ class WebUIServer:
         超时用模块常量而非入参：关停时限属实现细节，不应外推给调用方
         （也是 ruff ASYNC109 的意图）。
         """
-        import uvicorn
-
-        if isinstance(self._server, uvicorn.Server):
+        if self._server is not None:
             self._server.should_exit = True
         if self._task is not None:
             with suppress(asyncio.CancelledError, TimeoutError):
