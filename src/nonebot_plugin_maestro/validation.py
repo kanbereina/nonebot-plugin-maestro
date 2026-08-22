@@ -15,6 +15,8 @@ NAME_MAX_WIDTH = 14
 DESC_MAX_WIDTH = 30
 REMARK_MAX_LENGTH = 255
 MAX_ITEMS = 20
+# 单次请求允许携带的 openid 数上限（QQ 服务端限制，见 docs/panel-api.md）
+MAX_OPENIDS_PER_REQUEST = 20
 
 
 def display_width(text: str) -> int:
