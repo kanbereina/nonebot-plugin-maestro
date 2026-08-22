@@ -82,7 +82,7 @@ def _setup() -> None:
     # 令牌是唯一的访问控制——空令牌的对外暴露直接拒绝启动
     problem = exposure_problem(config.maestro_host, config.maestro_token)
     if problem is not None:
-        log.error(f"{problem}；已跳过 WebUI，插件其余功能不受影响")
+        log.error(f"{problem}\n已跳过 WebUI，插件其余功能不受影响")
         return
 
     # 先于 WebUI 启动注入安全策略：Host 白名单 / Origin 同源 / 可选令牌
