@@ -8,6 +8,7 @@ import asyncio
 from typing import TYPE_CHECKING, Literal, Annotated
 from pathlib import Path
 from contextlib import suppress
+from importlib.metadata import PackageNotFoundError, version
 
 from fastapi import Query, FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
@@ -38,6 +39,14 @@ SHUTDOWN_TIMEOUT = 5.0
 # 已连接机器人的客户端注册表
 registry = BotRegistry()
 
+# 从已安装的发行版元数据取版本，与 bumpversion 管理的 pyproject 同源；
+# 手写版本号会在发版后漂移（bump 不改本文件）
+try:
+    PACKAGE_VERSION = version("nonebot-plugin-maestro")
+except PackageNotFoundError:
+    # 未安装（如直接从源码路径导入）时拿不到元数据，仅影响 /docs 展示
+    PACKAGE_VERSION = "0.0.0"
+
 
 def get_client(bot_id: str) -> "PanelAPIClient":
     """按 bot id 取客户端，未注册时返回 404。"""
@@ -53,7 +62,7 @@ def get_client(bot_id: str) -> "PanelAPIClient":
 app = FastAPI(
     title="Maestro - QQ 指令面板管理",
     description="NoneBot2 QQ 官方机器人指令面板可视化管理工具",
-    version="0.1.0",
+    version=PACKAGE_VERSION,
 )
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
