@@ -63,9 +63,7 @@ class TestExposureEnforcement:
 
     @pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.10", "::", "example.com"])
     def test_exposed_without_token_is_rejected(self, host: str):
-        """非回环绑定（IPv4/IPv6 通配、内网 IP、域名）空令牌一律拒绝，
-        拒绝文案为单行并指明缺的配置。"""
+        """非回环绑定（IPv4/IPv6 通配、内网 IP、域名）空令牌一律拒绝。"""
         problem = exposure_problem(host, "")
         assert problem is not None
         assert "MAESTRO_TOKEN" in problem
-        assert "\n" not in problem

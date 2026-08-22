@@ -15,13 +15,13 @@ def exposure_problem(host: str, token: str) -> str | None:
     """公网部署缺令牌时返回拒绝原因；本机绑定或已设令牌返回 None。
 
     WebUI 的写接口（含不可逆删除）没有账号体系，令牌是唯一的访问控制，
-    空令牌的对外暴露一律拒绝启动。文案保持单行。
+    空令牌的对外暴露一律拒绝启动（README 的 WARNING 升级为强制）。
     """
     if host in LOOPBACK_BINDINGS or token:
         return None
     return (
         f"MAESTRO_HOST={host} 会把 WebUI 暴露到网络，"
-        "必须设置 MAESTRO_TOKEN 后才能启动 WebUI。"
+        "必须同时设置 MAESTRO_TOKEN（API 访问令牌）才能启动"
     )
 
 
