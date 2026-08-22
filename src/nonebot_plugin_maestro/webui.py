@@ -5,11 +5,11 @@ REST API、静态资源挂载与随 NoneBot 启动的生命周期。
 """
 
 import asyncio
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Annotated
 from pathlib import Path
 from contextlib import suppress
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import Query, FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -92,13 +92,18 @@ async def list_bots():
             me = await client.get_me()
             return {**me.model_dump(mode="json"), "bot_id": bot_id}
         except PanelAPIError as e:
-            # 单个机器人凭证失效不该让整页打不开
-            return {
-                "bot_id": bot_id,
-                "id": bot_id,
-                "username": None,
-                "error": e.describe(),
-            }
+            reason = e.describe()
+        except Exception as e:
+            # 网络层异常（NetworkError：QQ 网关不可达/超时）同样只源于
+            # 单个机器人的请求，不该让 asyncio.gather 整体失败、全页 500
+            reason = str(e) or e.__class__.__name__
+        # 单个机器人凭证失效或网络异常不该让整页打不开
+        return {
+            "bot_id": bot_id,
+            "id": bot_id,
+            "username": None,
+            "error": reason,
+        }
 
     results = await asyncio.gather(
         *(profile(bot_id, c) for bot_id, c in registry.items())
@@ -111,7 +116,8 @@ async def list_panels(
     bot_id: str,
     scope: Literal["c2c", "group", "channel", "dm"],
     cursor: str = "",
-    limit: int = 20,
+    # 本地拦下越界值（QQ 侧上限 50），别拿无效输入消耗 API 配额
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ):
     """查询指令面板列表。"""
     client = get_client(bot_id)

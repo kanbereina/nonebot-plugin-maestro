@@ -138,6 +138,21 @@ class TestListBots:
         assert bot["username"] is None
         assert "超出数量限制" in bot["error"]
 
+    def test_network_failure_does_not_break_page(
+        self, client: TestClient, fake_client: FakeClient
+    ):
+        """网络层异常（NetworkError 等）同样只影响单项，不该让全页 500。"""
+
+        async def boom(*args: Any, **kwargs: Any):
+            raise RuntimeError("connection timed out")
+
+        fake_client.get_me = boom  # type: ignore[assignment]
+        resp = client.get("/api/bots")
+        assert resp.status_code == 200
+        bot = resp.json()["bots"][0]
+        assert bot["username"] is None
+        assert "connection timed out" in bot["error"]
+
     def test_empty_registry(self, client: TestClient):
         registry.clear()
         assert client.get("/api/bots").json() == {"bots": []}
@@ -153,6 +168,23 @@ class TestPanelRoutes:
     def test_list_panels_rejects_bad_scope(self, client: TestClient):
         resp = client.get(f"/api/bots/{BOT_ID}/panels", params={"scope": "guild"})
         assert resp.status_code == 422
+
+    @pytest.mark.parametrize("limit", [0, -1, 51, 9999])
+    def test_list_panels_rejects_out_of_range_limit(
+        self, client: TestClient, limit: int
+    ):
+        """limit 越界在本地拦成 422，不透传 QQ API 消耗配额。"""
+        resp = client.get(
+            f"/api/bots/{BOT_ID}/panels", params={"scope": "group", "limit": limit}
+        )
+        assert resp.status_code == 422
+
+    def test_list_panels_accepts_limit_upper_bound(self, client: TestClient):
+        """limit=50 是合法边界，须放行。"""
+        resp = client.get(
+            f"/api/bots/{BOT_ID}/panels", params={"scope": "group", "limit": 50}
+        )
+        assert resp.status_code == 200
 
     def test_list_panels_requires_scope(self, client: TestClient):
         assert client.get(f"/api/bots/{BOT_ID}/panels").status_code == 422
