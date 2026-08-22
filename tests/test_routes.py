@@ -282,14 +282,12 @@ class TestErrorHandler:
         assert "超出数量限制" in body["detail"]
         assert body["code"] == 30013
 
-    def test_5xx_from_qq_is_normalized_to_400(
-        self, client: TestClient, fake_client: FakeClient
-    ):
-        """QQ 返回 5xx 时也归一到 400：问题源于输入或账号状态。"""
+    def test_5xx_from_qq_becomes_502(self, client: TestClient, fake_client: FakeClient):
+        """QQ 侧 5xx 是上游故障，归一为 502 而非伪装成客户端错误。"""
 
         async def boom(*args: Any, **kwargs: Any):
             raise PanelAPIError(status_code=502, message="网关错误")
 
         fake_client.list_panels = boom  # type: ignore[assignment]
         resp = client.get(f"/api/bots/{BOT_ID}/panels", params={"scope": "group"})
-        assert resp.status_code == 400
+        assert resp.status_code == 502

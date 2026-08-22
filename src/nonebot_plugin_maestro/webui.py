@@ -70,13 +70,16 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.exception_handler(PanelAPIError)
 async def panel_api_error_handler(request: Request, exc: PanelAPIError) -> JSONResponse:
-    """把 QQ 侧业务错误转成 4xx，带上原始 message 与 code。
+    """把 QQ 侧业务错误转成对前端有意义的响应，带上原始 message 与 code。
 
-    这类错误（数量超限、面板不存在、场景不支持）源于输入或账号状态，
-    以 500 + traceback 返回会让前端只能显示「Internal Server Error」。
+    4xx（数量超限、面板不存在、场景不支持等）源于输入或账号状态，原样
+    透传；5xx 是 QQ 侧真故障，归一为 502（Bad Gateway）——伪装成 400 会
+    诱导用户去改本就正确的输入。原样 500 亦不可取，前端只能看到
+    「Internal Server Error」。
     """
+    status = exc.status_code if 400 <= exc.status_code < 500 else 502
     return JSONResponse(
-        status_code=exc.status_code if 400 <= exc.status_code < 500 else 400,
+        status_code=status,
         content={
             "detail": exc.describe(),
             "code": exc.code,
