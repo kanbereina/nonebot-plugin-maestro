@@ -13,11 +13,10 @@ dependencies = [
   "uvicorn[standard]>=0.32.0,<1.0.0",
   # nonebot2 本体只带驱动抽象；QQ 适配器在 setup() 时强制要求 driver 提供
   # HTTPClientMixin（QQ_BOTS 配置 websocket 连接时还要 WebSocketClientMixin），
-  # 实现库须由插件显式声明（范围与 nonebot2 对应 extra 的声明一致），
+  # httpx 驱动实现由插件显式声明（范围与 nonebot2 对应 extra 的声明一致），
   # 不能让宿主装完插件后连 API 请求都发不出去
   "nonebot2>=2.5.0,<3.0.0",
   "httpx[http2]>=0.26.0,<1.0.0",
-  "websockets>=15.0",
   # 指令面板是 QQ OpenAPI 专有接口，适配器为直接依赖
   # 下限 1.7.2：其声明 nonebot2>=2.5.0,<3
   "nonebot-adapter-qq>=1.7.2,<2.0.0",
