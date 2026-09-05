@@ -85,11 +85,20 @@ plugins = ["nonebot_plugin_maestro"]
 
 WebUI 使用独立的 uvicorn 服务，端口与 NoneBot 的 `PORT` 互不影响。默认选 8100，就是为了避开 NoneBot 常用的 8080。
 
-适配器要求 driver 提供 HTTP 客户端，需要在 `.env` 里这样配置：
+QQ 适配器要求 driver 提供 HTTP 客户端（连接 QQ 事件用 WebSocket），`.env` 里这样配置：
 
 ```dotenv
 DRIVER=~httpx+~websockets
 ```
+
+> [!NOTE]
+> `DRIVER` 的写法是「`Driver` + 能力补充」：**第一个组件提供完整服务端驱动**，其后每个组件给驱动追加一类能力（Mixin）。想用 webhook 反连收事件（`QQ_BOTS` 里把 `use_websocket` 设为 `false`）时，服务端驱动换成能接收回调的 `~fastapi`、再补 `~httpx` 客户端即可：
+>
+> ```dotenv
+> DRIVER=~fastapi+~httpx
+> ```
+>
+> WebUI 自己跑独立的 uvicorn，不占用 NoneBot 的 ASGI 服务端。
 
 > [!NOTE]
 > WebUI 自带三层防护：绑定本机地址时启用 Host 白名单（防 DNS rebinding）、校验 Origin 与 Host 一致（防跨站请求，`no-cors` POST 也能拦截）、可选的 `MAESTRO_TOKEN` 令牌鉴权。

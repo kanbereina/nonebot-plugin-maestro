@@ -351,7 +351,8 @@ class WebUIServer:
 
     WebUI 不挂载到 NoneBot 的 ASGI app，而是自己监听
     MAESTRO_HOST:MAESTRO_PORT，与 NoneBot 的 HOST/PORT 相互独立——
-    因此不要求 driver 提供 ASGI 服务端，`~httpx+~websockets` 即可。
+    因此不要求 driver 提供 ASGI 服务端，连接 QQ 用
+    `~httpx+~websockets`（httpx 做服务端、websockets 补 WS 客户端）即可。
     """
 
     def __init__(self, asgi_app: FastAPI, host: str, port: int) -> None:
