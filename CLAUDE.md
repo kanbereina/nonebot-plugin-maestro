@@ -46,7 +46,7 @@ WebUI 跑在自己的 uvicorn 上（默认 `127.0.0.1:8100`，避开 NoneBot 的
 
 ### 依赖
 
-`nonebot2`、`httpx[http2]`、`websockets` 与 `nonebot-adapter-qq` 都是**必需依赖**，不是 extra——各模块直接 import 它们，缺任一者插件无法加载。`uv sync` 即可。注意 nonebot2 声明为裸依赖（不带 `[httpx,websockets]` extra）：驱动实现库由插件直接声明，避免向宿主编排透出 extras。
+`nonebot2`、`httpx[http2]` 与 `nonebot-adapter-qq` 都是**必需依赖**，不是 extra——各模块直接 import 它们，缺任一者插件无法加载。`uv sync` 即可。注意 nonebot2 声明为裸依赖（不带 `[httpx,websockets]` extra）：httpx 驱动实现库由插件直接声明，避免向宿主编排透出 extras；websockets 驱动库未直接声明（插件的 HTTP 客户端不需要它，需要时由宿主的 driver 配置自行引入）。
 
 ### 工程化
 
