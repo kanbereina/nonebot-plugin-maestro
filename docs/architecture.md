@@ -31,11 +31,18 @@ except ValueError:
 
 考虑过挂载到 NoneBot 的 ASGI app（`~fastapi` driver）作为子路由，放弃的理由：
 
-- 会强制要求 driver 含 `~fastapi`，而适配器本身只需要 `HTTPClientMixin`（`~httpx`/`~websockets` 即可）。多数用户的 bot 未必用 fastapi driver。
+- 会强制要求 driver 用 `~fastapi` 做服务端，而插件只需要 HTTP 客户端能力（`~httpx+~websockets` 即可）——多数用户的 bot 未必用 fastapi driver。
 - 端口耦合：WebUI 和 bot 的 webhook/API 混在一个端口上，用户想单独控制 WebUI 的访问范围（比如只内网访问）会更麻烦。
 - 独立 uvicorn 用 `lifespan="off"`——它不需要 FastAPI 的 startup/shutdown 事件，那些职责已经由 NoneBot 的 `on_startup`/`on_shutdown` 钩子承担了，重复一份等于两套生命周期管理系统。
 
 代价是多开一个端口，用默认值 `8100` 避开 NoneBot 的 `8080`，减少手动配置的必要。
+
+### driver 写法：第一个组件是服务端，后面是能力补充
+
+NoneBot 的 `DRIVER` 不是普通的包列表：`combine_driver` 只支持「**一个完整驱动 + 若干个 Mixin**」。`_resolve_combine_expr` 把第一个组件解析成 `nonebot.drivers.*.Driver`（完整服务端），其余组件一律解析成 `Mixin` 类再合成。两个后果：
+
+- **`~httpx+~websockets` 才是「服务端 + WS 客户端能力」的写法**。`httpx.py` 里虽有完整的 `Driver` 类（含 `HTTPClientMixin`），但它没有任何 ASGI 服务端；`websockets` 只作为 `Mixin` 补上 `WebSocketClientMixin`。这是连接 QQ 的默认配置（`.env.example` 同款）。
+- **webhook 反连模式要把 `~fastapi` 写在第一个**：`~httpx+~fastapi` 会把 `fastapi` 当 `Mixin` 解析，而 `fastapi.py` 里只有完整的 `Driver`、没有 `Mixin` 类，直接 `AttributeError`。事件回调需要 ASGI 服务端，正确写法是 `~fastapi+~httpx`（fastapi 提供服务端与 ASGI 能力，httpx 补 HTTP 客户端）。
 
 ## 配置读取：`Config` + `get_plugin_config`
 
