@@ -230,6 +230,7 @@ async def panel_api_error_handler(request: Request, exc: PanelAPIError) -> JSONR
         content={
             "detail": exc.describe(),
             "code": exc.code,
+            "limit": exc.limit,
             "trace_id": exc.trace_id,
         },
     )

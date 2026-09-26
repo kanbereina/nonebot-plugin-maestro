@@ -50,3 +50,28 @@ class TestAttributes:
         assert "400" in r
         assert "30013" in r
         assert "t1" in r
+
+
+class TestLimit:
+    """超限错误里服务端回传的 limit 必须透出。
+
+    官方文档：40030013「超出数量限制」——具体限制值见返回信息中的 limit。
+    有了它，上限口径与数值都来自 QQ 自己，前端不必显示我们自己猜的常量。
+    """
+
+    def test_limit_appended_to_description(self):
+        err = PanelAPIError(
+            status_code=400, code=30013, message="超出数量限制", limit=20
+        )
+        assert "20" in err.describe()
+        assert "超出数量限制" in err.describe()
+
+    def test_without_limit_description_unchanged(self):
+        """取不到 limit 时文案不能多出空壳（该字段并非所有错误都有）。"""
+        err = PanelAPIError(status_code=400, code=30016, message="必填字段缺失")
+        assert "上限" not in err.describe()
+
+    def test_limit_survives_as_attribute(self):
+        err = PanelAPIError(status_code=400, code=30013, limit=1000)
+        assert err.limit == 1000
+        assert "1000" in repr(err)

@@ -47,12 +47,18 @@ class FakeClient:
         self.bot = FakeBot(self_id)
         self.calls: list[tuple[str, tuple, dict]] = []
         self.raise_on: str | None = None
+        self.raise_limit: int | None = None
         self.panel_total = 0
 
     def _record(self, name: str, *args: Any, **kwargs: Any) -> None:
         self.calls.append((name, args, kwargs))
         if self.raise_on == name:
-            raise PanelAPIError(status_code=400, code=30013, message="超出数量限制")
+            raise PanelAPIError(
+                status_code=400,
+                code=30013,
+                message="超出数量限制",
+                limit=self.raise_limit,
+            )
 
     async def get_me(self) -> BotProfile:
         self._record("get_me")
@@ -452,6 +458,26 @@ class TestErrorHandler:
         body = resp.json()
         assert "超出数量限制" in body["detail"]
         assert body["code"] == 30013
+
+    def test_limit_is_exposed_in_response(
+        self, client: TestClient, fake_client: FakeClient
+    ):
+        """服务端回传的 limit 要在响应里透出，前端才能显示权威数值。"""
+        fake_client.raise_on = "list_panels"
+        fake_client.raise_limit = 20
+        resp = client.get(f"/api/bots/{BOT_ID}/panels", params={"scope": "group"})
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["limit"] == 20
+        assert "20" in body["detail"]
+
+    def test_limit_is_null_when_not_returned(
+        self, client: TestClient, fake_client: FakeClient
+    ):
+        """没有该字段时给 null，不能凭空造一个数值。"""
+        fake_client.raise_on = "list_panels"
+        resp = client.get(f"/api/bots/{BOT_ID}/panels", params={"scope": "group"})
+        assert resp.json()["limit"] is None
 
     def test_5xx_from_qq_becomes_502(self, client: TestClient, fake_client: FakeClient):
         """QQ 侧 5xx 是上游故障，归一为 502 而非伪装成客户端错误。"""

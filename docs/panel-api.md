@@ -102,6 +102,10 @@ WebUI 前端与后端（`validation.py`）都要挡这些：
 
 因此**不要按 code 精确匹配做分支判断**，优先透传服务端 `message`，并记录 `X-Tps-trace-ID`（响应头）。
 
+3. **超限响应的正文带 `limit`**（来源：官方文档对 `40030013` 的说明——「建议减少请求数量，具体限制值见返回信息中的 `limit`」，尚待实测）。即服务端会直接回传真实的限制值，比我们自己维护常量可靠。`panel_client._call` 会把它取出来放进 `PanelAPIError.limit`，`describe()` 一并显示，`webui` 的异常响应里也有该字段。
+
+   这条对「每个机器人 20 个面板是跨场景合计还是每场景各 20」尤其有用——官方文档原文只有「一个机器人最多创建 20 个指令面板」，**没有写明口径**。等拿到一次真实的 `limit` 即可定论，不必再推断。
+
 `panel_client._call` 统一捕获适配器的 `ActionFailed` 并转成 `exceptions.PanelAPIError`，再由 `webui` 的 exception handler 输出 4xx + 原始 message。新增接口调用请走 `_call`，不要直接用 `bot._request`，否则错误会漏成 500 + traceback。
 
 ## 乐观并发

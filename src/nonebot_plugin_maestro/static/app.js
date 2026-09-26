@@ -489,7 +489,9 @@ function maestroApp() {
         },
 
         async errorMessage(resp) {
-            // 后端把 QQ 侧业务错误转成 {detail, code, trace_id}
+            // 后端把 QQ 侧业务错误转成 {detail, code, limit, trace_id}。
+            // 上限值已由后端拼进 detail（exceptions.describe），这里不再追加，
+            // 否则同一条信息会出现两次
             try {
                 const data = await resp.json();
                 if (typeof data.detail === 'string') return data.detail;
