@@ -83,6 +83,15 @@ function maestroApp() {
             </svg>`
         },
         panels: [],
+        // 校验上限：init 时从 /api/limits 取，与后端 validation 同源。
+        // 这里的默认值仅作后备，拿不到时校验规则不至于消失
+        limits: {
+            name_max_width: 14,
+            desc_max_width: 30,
+            remark_max_length: 255,
+            max_items: 20,
+            max_panels_per_bot: 20
+        },
         // 各场景面板数：独立缓存，避免切换时沿用上一场景的数字
         scopeCounts: { c2c: 0, group: 0, channel: 0, dm: 0 },
         countsReady: false,
@@ -107,8 +116,20 @@ function maestroApp() {
         },
 
         async init() {
-            this.loadVersion();
+            // 先取机器人列表：三个请求都会带令牌，串行可避免令牌缺失时
+            // 并发触发多次 prompt（apiFetch 的 401 引导）
             await this.loadBots();
+            this.loadVersion();
+            this.loadLimits();
+        },
+
+        // 校验上限从后端取，避免前后端各写一份数字而漂移；
+        // 失败则沿用内置默认值
+        async loadLimits() {
+            try {
+                const resp = await this.apiFetch('/api/limits');
+                if (resp.ok) this.limits = { ...this.limits, ...(await resp.json()) };
+            } catch { /* 用默认上限 */ }
         },
 
         // 页脚版本号从后端取（与包元数据同源），拿不到就留空
@@ -224,6 +245,20 @@ function maestroApp() {
             this.countsReady = false;
         },
 
+        // 面板上限是账号级的（跨全部 scope 合计 20），不是每场景 20
+        totalPanels() {
+            return Object.values(this.scopeCounts).reduce((a, b) => a + b, 0);
+        },
+
+        // 仅作提示，不用来禁用按钮：面板上限的口径（跨场景合计）来自文档，
+        // 但该文档已错过两次。硬禁用一旦前提有误就把用户困死——没有逃生
+        // 口，只能删面板才能解锁。所以这里只警告，真正拦的是后端 409，
+        // 那份文案同样说得明白。
+        panelQuotaFull() {
+            return this.countsReady
+                && this.totalPanels() >= this.limits.max_panels_per_bot;
+        },
+
         // channel / dm 仅支持全局配置，不能挂指定对象
         scopeHint() {
             return ['channel', 'dm'].includes(this.scope)
@@ -248,11 +283,13 @@ function maestroApp() {
                 const at = `第 ${i + 1} 项`;
                 if (!item.name) return `${at}缺少名称`;
                 if (!item.desc) return `${at}缺少描述`;
-                if (this.width(item.name) > 14) {
-                    return `${at}「${item.name}」名称宽度 ${this.width(item.name)} 超过 14（中文计 2）`;
+                const nameMax = this.limits.name_max_width;
+                const descMax = this.limits.desc_max_width;
+                if (this.width(item.name) > nameMax) {
+                    return `${at}「${item.name}」名称宽度 ${this.width(item.name)} 超过 ${nameMax}（中文计 2）`;
                 }
-                if (this.width(item.desc) > 30) {
-                    return `${at}「${item.name}」描述宽度 ${this.width(item.desc)} 超过 30（中文计 2）`;
+                if (this.width(item.desc) > descMax) {
+                    return `${at}「${item.name}」描述宽度 ${this.width(item.desc)} 超过 ${descMax}（中文计 2）`;
                 }
                 if (item.type === 'link' && !(item.link || '').startsWith('https://')) {
                     return `${at}「${item.name}」为链接类型，地址必须以 https:// 开头`;
@@ -281,7 +318,7 @@ function maestroApp() {
         },
 
         addPanelItem() {
-            if (this.newPanel.items.length >= 20) return;
+            if (this.newPanel.items.length >= this.limits.max_items) return;
             this.newPanel.items.push({
                 name: '',
                 desc: '',
@@ -293,11 +330,24 @@ function maestroApp() {
         },
 
         async createPanel() {
+            // 连点防护：写接口仅 10 QPM，且重复提交会建出两个一样的面板
+            if (this.saving) return;
             const err = this.validateItems(this.newPanel.items);
             if (err) {
                 alert(err);
                 return;
             }
+            // 提示但不阻止：上限口径（跨场景合计）来自文档，若前提有误，
+            // 硬阻止会把用户困死。让用户能继续提交，由后端 409 给最终答复
+            if (this.panelQuotaFull()
+                && !confirm(
+                    `该机器人已有 ${this.totalPanels()} 个面板，达到上限 `
+                    + `${this.limits.max_panels_per_bot}（跨全部场景合计）。\n`
+                    + '继续提交大概率会被 QQ 拒绝，确定要试吗？'
+                )) {
+                return;
+            }
+            this.saving = true;
             try {
                 const resp = await this.apiFetch(`/api/bots/${this.activeBot.bot_id}/panels`, {
                     method: 'POST',
@@ -321,9 +371,13 @@ function maestroApp() {
                 if (!resp.ok) throw new Error(await this.errorMessage(resp));
                 this.showCreateModal = false;
                 this.newPanel = { remark: '', items: [] };
+                // 只刷当前场景即可：新面板必定落在 this.scope，
+                // loadPanels 会同步该场景计数，跨场景总数随之正确
                 await this.loadPanels();
             } catch (error) {
                 alert('创建失败: ' + error.message);
+            } finally {
+                this.saving = false;
             }
         },
 
@@ -342,7 +396,7 @@ function maestroApp() {
         },
 
         addEditItem() {
-            if (this.editForm.items.length >= 20) return;
+            if (this.editForm.items.length >= this.limits.max_items) return;
             this.editForm.items.push({
                 name: '',
                 desc: '',

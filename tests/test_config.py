@@ -67,3 +67,17 @@ class TestExposureEnforcement:
         problem = exposure_problem(host, "")
         assert problem is not None
         assert "MAESTRO_TOKEN" in problem
+
+
+class TestTokenCharset:
+    """令牌限定 ASCII：HTTP 头按 latin-1 传输，中文令牌即便填对也匹配不上，
+    在配置阶段就报错胜过运行期「令牌没错却进不去」。"""
+
+    @pytest.mark.parametrize("token", ["令牌abc", "tokén", "パネル"])
+    def test_rejects_non_ascii_token(self, token: str):
+        with pytest.raises(ValidationError, match="ASCII"):
+            Config(maestro_token=token)
+
+    @pytest.mark.parametrize("token", ["", "s3cret", "a-b_c.123", "~!@#$%^&*()"])
+    def test_accepts_ascii_token(self, token: str):
+        assert Config(maestro_token=token).maestro_token == token

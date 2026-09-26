@@ -5,7 +5,7 @@
 且拿不到类型校验。`.env` 中以 `MAESTRO_` 前缀配置。
 """
 
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, field_validator
 
 # 视为「仅本机」的绑定地址：Host 白名单按此判断，不在其中的地址都算对外暴露
 LOOPBACK_BINDINGS = {"127.0.0.1", "localhost", "::1"}
@@ -49,8 +49,25 @@ class Config(BaseModel):
         default="",
         description="API 访问令牌。设置后所有 /api/* 请求须携带"
         " X-Maestro-Token 头（WebUI 会自动引导输入）；"
-        "对外暴露（非回环绑定）时必须设置，否则拒绝启动",
+        "对外暴露（非回环绑定）时必须设置，否则拒绝启动。仅限 ASCII 字符",
     )
+
+    @field_validator("maestro_token")
+    @classmethod
+    def _token_must_be_ascii(cls, v: str) -> str:
+        """令牌限定 ASCII：HTTP 头无法可靠承载非 ASCII 字符。
+
+        请求头按 latin-1 传输，浏览器对非 ASCII 头值的处理各不相同，
+        中文令牌即便填对也可能匹配不上。在配置阶段就明确报错，
+        胜过让用户面对「令牌没错却进不去」。
+        """
+        if not v.isascii():
+            raise ValueError(
+                "MAESTRO_TOKEN 只能包含 ASCII 字符"
+                "（HTTP 请求头无法可靠传递中文等非 ASCII 字符），"
+                "建议用字母、数字与 -_ 组合"
+            )
+        return v
 
 
 def get_config() -> Config:

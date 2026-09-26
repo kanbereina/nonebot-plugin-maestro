@@ -89,6 +89,25 @@ class TestTokenAuth:
         resp = client.get("/api/bots", headers={"X-Maestro-Token": "s3cret"})
         assert resp.status_code == 200
 
+    def test_non_ascii_token_header_rejected_not_crashed(self, client: TestClient):
+        """非 ASCII 令牌头须是 401，不是 500。
+
+        secrets.compare_digest 对含非 ASCII 的 str 抛 TypeError（而非返回
+        False）——曾因此让任何人用一个中文头把 401 变成 500。
+        """
+        security_policy.configure("127.0.0.1", 8100, token="s3cret")
+        resp = client.get(
+            "/api/bots",
+            headers={"X-Maestro-Token": "令牌".encode()},
+        )
+        assert resp.status_code == 401
+
+    def test_token_with_padding_length_mismatch_rejected(self, client: TestClient):
+        """长度不同的令牌照样拒绝（compare_digest 对长度不敏感地返回 False）。"""
+        security_policy.configure("127.0.0.1", 8100, token="s3cret")
+        resp = client.get("/api/bots", headers={"X-Maestro-Token": "s3cret-extra"})
+        assert resp.status_code == 401
+
     def test_token_guards_api_only(self, client: TestClient):
         """令牌只护 /api/*：页面与静态资源须能打开，前端才有机会引导输入。"""
         security_policy.configure("127.0.0.1", 8100, token="s3cret")

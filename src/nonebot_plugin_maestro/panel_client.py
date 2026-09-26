@@ -3,6 +3,7 @@
 adapter-qq 未封装 /v2/panels 接口，此模块通过 Bot._request 直接调用。
 """
 
+import asyncio
 from typing import Any, Literal
 from collections.abc import Sequence
 
@@ -12,8 +13,11 @@ from nonebot.adapters.qq import Bot
 from nonebot.adapters.qq import Adapter as QQAdapter
 from nonebot.adapters.qq.exception import ActionFailed
 
+from nonebot_plugin_maestro.logger import get_logger
 from nonebot_plugin_maestro.models import (
+    ALL_SCOPES,
     Panel,
+    Scope,
     BotProfile,
     PanelRecord,
     PanelListResponse,
@@ -122,7 +126,7 @@ class PanelAPIClient:
 
     async def list_panels(
         self,
-        scope: Literal["c2c", "group", "channel", "dm"],
+        scope: Scope,
         *,
         cursor: str = "",
         limit: int = 20,
@@ -141,9 +145,48 @@ class PanelAPIClient:
         resp = await self._call("GET", "/v2/panels", params=params)
         return PanelListResponse.model_validate(resp)
 
+    async def count_panels(self) -> int | None:
+        """统计该机器人的面板总数（跨全部 scope 合计），失败返回 None。
+
+        面板上限 20 是账号级的，不是每场景 20；而列表接口的 scope 是必填
+        参数，因此只能四个场景各查一次再相加。四次都是读接口（30 QPM），
+        并发发出。
+
+        列表按游标翻页，这里用 limit=50 单页取回：单账号总数上限本就是
+        20，一页必然取完，不需要跟游标（取接口上限而非 MAX+1，这样即便
+        将来把上限调高，也不会越过列表接口的 limit 上限）。
+
+        调用方是写操作前的**预检**，只为让超限报错更好懂，不该成为写操作
+        的新依赖：网络异常或 QQ 侧故障时返回 None，由调用方放行、交给 QQ
+        判定。否则 4 个额外读请求会把创建路径的失败面放大 4 倍，且报出的
+        错和「创建」本身毫无关系。
+        """
+        try:
+            results = await asyncio.gather(
+                *(self.list_panels(scope, limit=50) for scope in ALL_SCOPES)
+            )
+        except Exception as exc:
+            # 这里刻意捕得宽：本方法只是写操作前的预检，任何意外都不该让
+            # 创建失败。已知会走这条路的除 PanelAPIError（QQ 业务错误）外，
+            # 还有 AdapterException 下的 NetworkError / ApiNotAvailable
+            # （驱动层，不经 _call 转换）与 QQ 返回结构意外时的
+            # pydantic ValidationError——逐个枚举既容易漏，也没必要。
+            # CancelledError 属 BaseException，不受影响，取消仍能正常传播。
+            # 带 bot 标识且用 warning：若某个 scope 对某个 bot 恒定失败
+            # （如无子频道的 bot 查 channel/dm），该 bot 的友好提示会永久
+            # 静默失效、用户又回到看不懂的 30013，日志是唯一的线索。
+            # 取标识本身做了兜底：日志参数绝不该盖掉真正要报告的错误。
+            try:
+                who = self.bot.self_id
+            except AttributeError:
+                who = "unknown"
+            get_logger().warning(f"[{who}] 统计面板总数失败，跳过本地预检：{exc!r}")
+            return None
+        return sum(len(r.records) for r in results)
+
     async def create_panel(
         self,
-        scope: Literal["c2c", "group", "channel", "dm"],
+        scope: Scope,
         panel: Panel,
         *,
         target_type: Literal["all", "specific"] = "all",

@@ -28,6 +28,13 @@ from nonebot_plugin_maestro.models import (
 from nonebot_plugin_maestro.registry import BotRegistry
 from nonebot_plugin_maestro.throttle import WriteThrottler
 from nonebot_plugin_maestro.exceptions import PanelAPIError
+from nonebot_plugin_maestro.validation import (
+    MAX_ITEMS,
+    DESC_MAX_WIDTH,
+    NAME_MAX_WIDTH,
+    REMARK_MAX_LENGTH,
+    MAX_PANELS_PER_BOT,
+)
 
 if TYPE_CHECKING:
     import socket
@@ -81,11 +88,15 @@ class SecurityPolicy:
         self._enforce_host = False
         self._allowed_hosts: set[str] = set()
         self._token = ""
+        self._token_bytes = b""
 
     def configure(self, host: str, port: int, token: str = "") -> None:
         """按配置初始化策略（见 maestro_host / maestro_token）。"""
         self._configured = True
         self._token = token
+        # 预先编码，避免每个请求重复 encode；Config 已限定令牌为 ASCII，
+        # 此处的 utf-8 与客户端发来的字节等价
+        self._token_bytes = token.encode("utf-8")
         if host in LOOPBACK_BINDINGS:
             self._enforce_host = True
             # 无端口的 Host 合法（HTTP/1.0 客户端、部分健康检查）
@@ -106,6 +117,7 @@ class SecurityPolicy:
         self._enforce_host = False
         self._allowed_hosts = set()
         self._token = ""
+        self._token_bytes = b""
 
     def check(self, request: Request) -> HTTPException | None:
         """校验请求，返回对应的 HTTPException；None 表示放行。"""
@@ -121,7 +133,13 @@ class SecurityPolicy:
                 return HTTPException(status_code=403, detail="跨站请求已被拦截")
         if self._token and request.url.path.startswith("/api/"):
             supplied = request.headers.get("x-maestro-token", "")
-            if not secrets.compare_digest(supplied, self._token):
+            # 必须先编码成 bytes：compare_digest 对含非 ASCII 的 str 会抛
+            # TypeError（而非返回 False），伪造一个非 ASCII 头即可把 401
+            # 变成 500。starlette 按 latin-1 解码请求头，故用 latin-1 还原
+            # 客户端发来的原始字节；errors 兜底保证任何输入都不会抛。
+            if not secrets.compare_digest(
+                supplied.encode("latin-1", "backslashreplace"), self._token_bytes
+            ):
                 return HTTPException(status_code=401, detail="访问令牌缺失或不正确")
         return None
 
@@ -226,6 +244,21 @@ async def get_version() -> dict[str, str]:
     return {"version": PACKAGE_VERSION}
 
 
+@app.get("/api/limits")
+async def get_limits() -> dict[str, int]:
+    """下发校验上限，前端据此做实时提示与按钮禁用。
+
+    与 validation 模块同源：上限散落在前端会和后端各改一处而漂移。
+    """
+    return {
+        "name_max_width": NAME_MAX_WIDTH,
+        "desc_max_width": DESC_MAX_WIDTH,
+        "remark_max_length": REMARK_MAX_LENGTH,
+        "max_items": MAX_ITEMS,
+        "max_panels_per_bot": MAX_PANELS_PER_BOT,
+    }
+
+
 @app.get("/api/bots")
 async def list_bots():
     """列出已注册机器人的信息（并发拉取 /users/@me）。
@@ -277,6 +310,27 @@ async def create_panel(bot_id: str, req: CreatePanelRequest):
     """创建指令面板。"""
     client = get_client(bot_id)
     throttle_write(bot_id)
+    # 面板总数上限的本地预检：QQ 侧超限返回 code=30013「超出数量限制」，
+    # 而该码同时用于字段显示宽度超限（见 validation 模块），照搬给用户会
+    # 把人引向删减指令项。
+    #
+    # 两点须知：一是预检**尽力而为**，统计失败（count_panels 返回 None）
+    # 即放行，最终仍以 QQ 判定为准；二是它存在并发窗口，两个请求可能都
+    # 读到「还差一个」，此处不做串行化。
+    #
+    # 顺序上先取限速令牌再预检：预检每次要打 4 个读接口，放在限速之前会
+    # 让本地限速管不到它，而读配额只有 30 QPM、还要被 UI 的列表加载共用，
+    # 打满后 UI 会因列表请求失败而显示空前列表。用一个写令牌（写配额更
+    # 稀缺）换掉这个风险是划算的——何况走到这里的请求本就多半会被拒。
+    total = await client.count_panels()
+    if total is not None and total >= MAX_PANELS_PER_BOT:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"该机器人已有 {total} 个面板，达到上限 {MAX_PANELS_PER_BOT}"
+                "（跨全部场景合计）。请先删除不用的面板再新建"
+            ),
+        )
     panel_id = await client.create_panel(
         req.scope,
         req.panel,
