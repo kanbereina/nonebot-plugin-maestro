@@ -12,6 +12,13 @@ from fastapi.testclient import TestClient
 from nonebot_plugin_maestro.webui import app, registry, write_throttler
 from nonebot_plugin_maestro.models import BotProfile, PanelRecord, PanelListResponse
 from nonebot_plugin_maestro.exceptions import PanelAPIError
+from nonebot_plugin_maestro.validation import (
+    MAX_ITEMS,
+    DESC_MAX_WIDTH,
+    NAME_MAX_WIDTH,
+    REMARK_MAX_LENGTH,
+    MAX_PANELS_PER_BOT,
+)
 
 BOT_ID = "102072450"
 
@@ -40,6 +47,7 @@ class FakeClient:
         self.bot = FakeBot(self_id)
         self.calls: list[tuple[str, tuple, dict]] = []
         self.raise_on: str | None = None
+        self.panel_total = 0
 
     def _record(self, name: str, *args: Any, **kwargs: Any) -> None:
         self.calls.append((name, args, kwargs))
@@ -57,6 +65,12 @@ class FakeClient:
         return PanelListResponse.model_validate(
             {"records": [make_record()], "is_end": True}
         )
+
+    async def count_panels(self) -> int | None:
+        """面板总数。默认 0（未达上限），测试可改 panel_total 模拟配额满；
+        置 None 模拟统计失败（网络异常等），此时预检必须放行。"""
+        self._record("count_panels")
+        return self.panel_total
 
     async def create_panel(self, scope: str, panel: Any, **kwargs: Any) -> str:
         self._record("create_panel", scope, panel, **kwargs)
@@ -303,6 +317,104 @@ class TestPanelRoutes:
             f"/api/bots/{BOT_ID}/panels/p_x/target", json={"op": "remove"}
         )
         assert resp.status_code == 422
+
+
+class TestPanelQuota:
+    """面板总数上限 20（账号级，跨全部 scope 合计）须在本地拦下。
+
+    QQ 侧超限返回 code=30013「超出数量限制」，而该码同时用于字段显示宽度
+    超限——照搬给用户会把人引向删减指令项，方向完全相反。
+    """
+
+    def test_create_rejected_at_quota(
+        self, client: TestClient, fake_client: FakeClient
+    ):
+        fake_client.panel_total = MAX_PANELS_PER_BOT
+        resp = client.post(
+            f"/api/bots/{BOT_ID}/panels",
+            json={"scope": "group", "panel": {"items": [], "remark": ""}},
+        )
+        assert resp.status_code == 409
+        assert str(MAX_PANELS_PER_BOT) in resp.json()["detail"]
+        # 必须在下单前拦住，不能真的建出第 21 个面板
+        assert not [c for c in fake_client.calls if c[0] == "create_panel"]
+
+    def test_quota_precheck_runs_after_throttle(
+        self, client: TestClient, fake_client: FakeClient
+    ):
+        """限速令牌先取、预检后做：预检每次要打 4 个读接口。
+
+        放在限速之前会让本地限速管不到它，而读配额只有 30 QPM、还要被 UI
+        的列表加载共用——打满后 UI 显示空列表，比多花一个写令牌糟得多。
+        因此 409 是要消耗写令牌的，这里把这个顺序固定下来。
+        """
+        fake_client.panel_total = MAX_PANELS_PER_BOT
+        for _ in range(10):
+            resp = client.post(
+                f"/api/bots/{BOT_ID}/panels",
+                json={"scope": "group", "panel": {"items": [], "remark": ""}},
+            )
+            if resp.status_code == 429:
+                break
+        else:
+            pytest.fail("连发写请求始终未触发限速，说明预检跑在取令牌之前")
+
+        # 限速是暂时的：等令牌桶回填后仍能拿到配额 409（而不是一直 429）
+        write_throttler.reset()
+        fake_client.panel_total = MAX_PANELS_PER_BOT
+        assert (
+            client.post(
+                f"/api/bots/{BOT_ID}/panels",
+                json={"scope": "group", "panel": {"items": [], "remark": ""}},
+            ).status_code
+            == 409
+        )
+
+    def test_create_allowed_below_quota(
+        self, client: TestClient, fake_client: FakeClient
+    ):
+        fake_client.panel_total = MAX_PANELS_PER_BOT - 1
+        resp = client.post(
+            f"/api/bots/{BOT_ID}/panels",
+            json={"scope": "group", "panel": {"items": [], "remark": ""}},
+        )
+        assert resp.status_code == 200
+
+
+class TestPanelQuotaPrecheckFailure:
+    """预检只是为了让超限报错更好懂，本身不该成为写操作的新依赖。
+
+    改动前 create 只发 1 个请求；加权预检后若它失败会把创建路径的失败面
+    放大 4 倍，且报出的错和「创建」毫无关系。
+    """
+
+    def test_count_failure_does_not_block_create(
+        self, client: TestClient, fake_client: FakeClient
+    ):
+        fake_client.panel_total = None  # 统计失败
+        resp = client.post(
+            f"/api/bots/{BOT_ID}/panels",
+            json={"scope": "group", "panel": {"items": [], "remark": ""}},
+        )
+        assert resp.status_code == 200
+        assert [c for c in fake_client.calls if c[0] == "create_panel"]
+
+
+class TestLimitsEndpoint:
+    """上限下发：前端据此做实时提示，避免前后端各写一份数字而漂移。"""
+
+    def test_returns_validation_limits(self, client: TestClient):
+        data = client.get("/api/limits").json()
+        assert data["name_max_width"] == NAME_MAX_WIDTH
+        assert data["desc_max_width"] == DESC_MAX_WIDTH
+        assert data["remark_max_length"] == REMARK_MAX_LENGTH
+        assert data["max_items"] == MAX_ITEMS
+        assert data["max_panels_per_bot"] == MAX_PANELS_PER_BOT
+
+    def test_frontend_reads_limits_from_api(self, client: TestClient):
+        """前端须真的去取，否则硬编码的数字又会与后端漂移。"""
+        js = client.get("/static/app.js").text
+        assert "/api/limits" in js
 
 
 class TestWriteThrottle:

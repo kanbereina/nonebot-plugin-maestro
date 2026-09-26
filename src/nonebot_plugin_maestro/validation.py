@@ -15,6 +15,8 @@ NAME_MAX_WIDTH = 14
 DESC_MAX_WIDTH = 30
 REMARK_MAX_LENGTH = 255
 MAX_ITEMS = 20
+# 每个机器人的面板总数上限：跨全部 scope 合计，不是每场景 20
+MAX_PANELS_PER_BOT = 20
 # 单次请求允许携带的 openid 数上限（QQ 服务端限制，见 docs/panel-api.md）
 MAX_OPENIDS_PER_REQUEST = 20
 

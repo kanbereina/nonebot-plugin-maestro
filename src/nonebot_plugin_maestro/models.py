@@ -17,6 +17,11 @@ from nonebot_plugin_maestro.validation import (
     check_width,
 )
 
+# 面板场景。别名而非各处重复 Literal：新增/调整维度只改一处
+Scope = Literal["c2c", "group", "channel", "dm"]
+# 统计面板总数时需要遍历全部场景（列表接口的 scope 是必填参数）
+ALL_SCOPES: tuple[Scope, ...] = ("c2c", "group", "channel", "dm")
+
 
 class PanelItem(BaseModel):
     """面板元素。
@@ -78,7 +83,7 @@ class PanelRecord(BaseModel):
     """面板完整记录（列表/详情接口返回）。"""
 
     panel_id: str
-    scope: Literal["c2c", "group", "channel", "dm"]
+    scope: Scope
     target_type: Literal["all", "specific"]
     panel: Panel
     created_at: str = Field(description="创建时间（RFC3339）")
@@ -103,7 +108,7 @@ class PanelListResponse(BaseModel):
 class CreatePanelRequest(BaseModel):
     """创建面板请求体。"""
 
-    scope: Literal["c2c", "group", "channel", "dm"]
+    scope: Scope
     panel: Panel
     target_type: Literal["all", "specific"] = "all"
     # 上限本地就拦（写接口仅 10 QPM，别拿必拒的请求消耗配额）
