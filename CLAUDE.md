@@ -12,7 +12,7 @@ Maestro 是适用 NoneBot2 的**可视化指令面板管理工具**：在本地�
 
 ## 代码结构
 
-这是一个 **NoneBot 插件**（按发布规范命名）：包名 `nonebot-plugin-maestro`，模块 `nonebot_plugin_maestro`。当前分支 `master`，PR 目标分支 `main`。
+这是一个 **NoneBot 插件**（按发布规范命名）：包名 `nonebot-plugin-maestro`，模块 `nonebot_plugin_maestro`。主分支 `main`，改动走「分支 → PR → 合并到 `main`」。
 
 | 文件 | 职责 |
 |---|---|
@@ -77,7 +77,9 @@ Python 版本：`requires-python = ">=3.12, <3.14"`，当前 venv 是 3.12.10。
 
 `pyrefly` 用 `preset = "strict"`：参数与类型实参不允许隐式 `Any`、空容器需标注、覆写需 `@override`。新代码一律写全类型标注。
 
-测试已建立（`tests/`，80 个用例）：`uv run pytest -q` 或 `uv run poe test`（带覆盖率）；单测单跑 `uv run pytest tests/test_x.py::test_y -q`。全部用假客户端，**不打真实 QQ API**。
+测试已建立（`tests/`，159 个用例）：`uv run pytest -q` 或 `uv run poe test`（带覆盖率）；单测单跑 `uv run pytest tests/test_x.py::test_y -q`。全部用假客户端，**不打真实 QQ API**。
+
+`tests/test_setup.py` 直接调用 `_setup()` 覆盖各配置分支（无效配置须记录日志、`MAESTRO_ENABLED=false` 不启动、对外暴露无令牌拒绝启动）。它依赖 nonebug 的 pytest11 插件隐式提供的 session 级 fixture 完成 `nonebot.init()`；**不要在 `conftest.py` 里自行调 `nonebot.init()`**——那会让 driver 的启动流程真的跑起来、触发插件钩子，WebUI 真去监听端口并注入安全策略，路由测试会因 Host 校验全部变成 403。
 
 ## 架构要点
 
@@ -112,7 +114,7 @@ token 逻辑就在 `Bot` 类上（无独立 token 管理模块）：`get_access_
 
 NoneBot 侧配置字段（`.env`）：`QQ_IS_SANDBOX`、`QQ_BOTS`（JSON 数组，元素含 `id` / `token` / `secret`，可选 `intent`、`use_websocket`）、`QQ_API_BASE`、`QQ_SANDBOX_API_BASE`、`QQ_AUTH_BASE`。需要显式指定新域名时可覆盖 `QQ_API_BASE`。
 
-**driver 必须提供 HTTP 客户端**：适配器 `setup()` 强制要求 `HTTPClientMixin`，NoneBot 默认的 `~fastapi` 不满足会直接抛错。`webui.py` 里已固定 `nonebot.init(driver="~httpx+~websockets")`，不读 `.env` 的 `DRIVER`。
+**driver 必须提供 HTTP 客户端**：适配器 `setup()` 强制要求 `HTTPClientMixin`，NoneBot 默认的 `~fastapi` 不满足会直接抛错。**driver 由宿主决定，插件不介入**——`webui.py` 里没有 `nonebot.init`，`bot.py` 走默认初始化（读 `.env` 的 `DRIVER`），故 `.env.example` 与 README 都要写明 `DRIVER=~httpx+~websockets`。
 
 ### 面板接口一览
 
