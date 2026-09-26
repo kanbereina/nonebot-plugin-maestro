@@ -1,6 +1,7 @@
 """Maestro - QQ 官方机器人指令面板可视化管理插件。"""
 
 from nonebot import get_driver
+from pydantic import ValidationError
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters import Bot as BaseBot
 
@@ -67,12 +68,26 @@ def _setup() -> None:
     独立导入用于测试或复用，而不强制调用方先 `nonebot.init()`。
     """
     try:
-        config = get_config()
+        get_driver()
     except ValueError:
         # NoneBot has not been initialized
         return
 
     log = get_logger()
+
+    # 配置读取单独兜底：pydantic 的 ValidationError 是 ValueError 的子类，
+    # 曾与上面「未初始化」的 ValueError 一起被吞掉——配置写错时插件照报
+    # 加载成功，WebUI 却静默不启动，且一行日志都没有。这里必须区分开，
+    # 并且只记录、不上抛：配置有问题的插件不该掀翻整个宿主 bot。
+    try:
+        config = get_config()
+    except ValidationError as exc:
+        log.error(f"Maestro 配置无效，WebUI 不会启动：{exc}")
+        return
+    except Exception as exc:
+        # 兜底：非校验类的意外错误同样只记录，不影响宿主
+        log.error(f"Maestro 读取配置失败，WebUI 不会启动：{exc!r}")
+        return
 
     if not config.maestro_enabled:
         log.info("Maestro WebUI 已通过 MAESTRO_ENABLED=false 停用")
