@@ -136,3 +136,55 @@ class TestCountPanels:
 
         client.list_panels = boom  # type: ignore[method-assign]
         assert await client.count_panels() is None
+
+
+class TestLimitExtraction:
+    """QQ 在超限响应体里回传的 limit 要带到 PanelAPIError 上。
+
+    ActionFailed 的 body 是完整响应体，此前我们只取了 code/message，
+    把服务端给的真实上限丢掉了。
+    """
+
+    def _client_raising(self, body: dict | None, content: bytes | None = None):
+        import json as _json
+
+        from nonebot.drivers import Response
+        from nonebot.adapters.qq.exception import ActionFailed
+
+        client = PanelAPIClient.__new__(PanelAPIClient)
+        raw = content if content is not None else _json.dumps(body).encode()
+
+        async def fake_request(request):
+            raise ActionFailed(Response(400, content=raw, request=request))
+
+        client.bot = type("B", (), {"_request": staticmethod(fake_request)})()
+        client._base_url = "https://api.example.com"
+        return client
+
+    async def test_limit_reaches_error(self):
+        client = self._client_raising(
+            {"code": 30013, "message": "超出数量限制", "limit": 20}
+        )
+        with pytest.raises(PanelAPIError) as ei:
+            await client.list_panels("group")
+        assert ei.value.code == 30013
+        assert ei.value.limit == 20
+        assert "20" in ei.value.describe()
+
+    async def test_absent_limit_is_none(self):
+        """错误体没有 limit 时保持 None，不能凭空造一个。"""
+        client = self._client_raising({"code": 30016, "message": "必填字段缺失"})
+        with pytest.raises(PanelAPIError) as ei:
+            await client.list_panels("group")
+        assert ei.value.limit is None
+
+    @pytest.mark.parametrize("bad", ["20", 20.5, [], True])
+    async def test_non_int_limit_ignored(self, bad):
+        """类型不符时忽略（而非抛错或硬转），以免盖掉真正的错误。"""
+        client = self._client_raising(
+            {"code": 30013, "message": "超出数量限制", "limit": bad}
+        )
+        with pytest.raises(PanelAPIError) as ei:
+            await client.list_panels("group")
+        assert ei.value.limit is None
+        assert ei.value.code == 30013

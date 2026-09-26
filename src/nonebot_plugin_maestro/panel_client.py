@@ -24,6 +24,26 @@ from nonebot_plugin_maestro.models import (
 )
 from nonebot_plugin_maestro.exceptions import PanelAPIError
 
+# ==================== 响应解析工具 ====================
+
+
+def _extract_limit(body: dict[str, Any] | None) -> int | None:
+    """从 QQ 的错误响应体里取出服务端回传的限制值（`limit`）。
+
+    官方文档：`40030013`「超出数量限制」——具体限制值见返回信息中的 `limit`。
+    取不到时返回 None（该字段并非所有错误都有）；类型不符时也返回 None，
+    绝不抛：它只影响提示文案的完整度，不该把原始错误盖掉。类型不符记一条
+    warning——该字段尚无实测样本，真出现意外形态时日志是唯一的线索。
+    """
+    value = (body or {}).get("limit")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        get_logger().warning(f"QQ 错误响应的 limit 字段类型意外：{value!r}")
+        return None
+    return value
+
+
 # ==================== API 客户端 ====================
 
 
@@ -122,6 +142,7 @@ class PanelAPIClient:
                 code=e.code,
                 message=e.message,
                 trace_id=e.trace_id,
+                limit=_extract_limit(e.body),
             ) from e
 
     async def list_panels(
